@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stocker — Multi-Agent Trading System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<!-- ============================================================
+     Sidebar
+     ============================================================ -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+      Stocker
+    </div>
+    <div class="sidebar-subtitle">Multi-Agent Trading System</div>
+  </div>
+
+  <!-- Main navigation -->
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">主功能</div>
+    <ul class="sidebar-nav">
+      <li>
+        <a href="#chat" data-page="chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          对话
+        </a>
+      </li>
+      <li>
+        <a href="#portfolio" data-page="portfolio">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          持仓
+        </a>
+      </li>
+      <li>
+        <a href="#reports" data-page="reports">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+          </svg>
+          报告
+        </a>
+      </li>
+      <li>
+        <a href="#trades" data-page="trades">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
+          </svg>
+          交易记录
+        </a>
+      </li>
+      <li>
+        <a href="#logs" data-page="logs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+          </svg>
+          运行日志
+        </a>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Control -->
+  <div class="sidebar-section">
+    <div class="sidebar-section-title">控制台</div>
+    <ul class="sidebar-nav">
+      <li>
+        <a href="#strategy" data-page="strategy">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>
+          </svg>
+          策略配置
+        </a>
+      </li>
+      <li>
+        <a href="#modes" data-page="modes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+          执行模式
+        </a>
+      </li>
+      <li>
+        <a href="#settings" data-page="settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          设置
+        </a>
+      </li>
+    </ul>
+  </div>
+
+  <!-- Footer -->
+  <div class="sidebar-footer">
+    <div class="sidebar-status">
+      <span class="status-dot offline" id="status-dot"></span>
+      <span id="status-text">未连接</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ============================================================
+     Main Content Area
+     ============================================================ -->
+<div class="main">
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-title" id="topbar-title">对话</div>
+    <div class="topbar-actions">
+      <div class="toggle-wrap">
+        <span class="text-sm text-muted" id="execution-mode-label">OBSERVE</span>
+        <label class="toggle">
+          <input type="checkbox" id="execution-mode-toggle">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="text-sm" style="font-weight:500;">ACTIVE</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========== Page: Chat ========== -->
+  <div id="page-chat" class="page active">
+    <div class="chat-container">
+      <div class="chat-messages" id="chat-messages">
+        <div id="chat-empty" class="chat-empty">
+          <div class="chat-empty-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:.3;">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </div>
+          <div class="chat-empty-title">Stocker Supervisor</div>
+          <div class="chat-empty-hint">输入股票代码或自然语言，Supervisor 会自动选择合适的分析模式</div>
+          <div class="chat-quick-actions" style="margin-top:16px;">
+            <button class="quick-chip" data-msg="分析 AAPL">分析苹果</button>
+            <button class="quick-chip" data-msg="帮我看看 TSLA 的技术面">特斯拉技术面</button>
+            <button class="quick-chip" data-msg="当前系统状态">系统状态</button>
+            <button class="quick-chip" data-msg="扫描持仓">扫描持仓</button>
+            <button class="quick-chip" data-msg="查看持仓盈亏">持仓盈亏</button>
+          </div>
+        </div>
+      </div>
+      <div class="chat-input-bar">
+        <div class="chat-input-wrap">
+          <textarea id="chat-input" class="chat-input" placeholder="输入消息... (Enter 发送, Shift+Enter 换行)" rows="1"></textarea>
+          <button id="chat-send" class="chat-send-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Page: Portfolio ========== -->
+  <div id="page-portfolio" class="page">
+    <div class="content">
+      <!-- Summary cards -->
+      <div class="portfolio-summary">
+        <div class="summary-card">
+          <div class="summary-card-label">总市值</div>
+          <div class="summary-card-value" id="summary-total-value">$0.00</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">未实现盈亏</div>
+          <div class="summary-card-value positive" id="summary-total-pnl">$0.00</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">持仓数量</div>
+          <div class="summary-card-value" id="summary-position-count">0</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">今日信号</div>
+          <div class="summary-card-value" id="summary-signals">-</div>
+        </div>
+      </div>
+
+      <!-- Position table -->
+      <div class="table-wrap">
+        <div class="table-header">
+          <span class="table-title">持仓列表</span>
+          <div class="flex gap-2">
+            <button class="btn btn-sm" id="btn-refresh-portfolio">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              刷新
+            </button>
+            <button class="btn btn-sm btn-primary" id="btn-add-position">+ 添加</button>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>代码</th>
+              <th>名称</th>
+              <th>数量</th>
+              <th>成本</th>
+              <th>现价</th>
+              <th>盈亏</th>
+              <th>盈亏%</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="portfolio-tbody">
+            <tr><td colspan="8" class="text-muted" style="text-align:center;padding:30px;">暂无持仓数据</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Page: Reports ========== -->
+  <div id="page-reports" class="page">
+    <div class="content">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <div style="font-size:.8rem;color:var(--text-muted);">分析报告由数据分析团队 + 风险评估团队生成</div>
+        </div>
+        <button class="btn btn-sm" onclick="loadReports()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          刷新
+        </button>
+      </div>
+
+      <div class="reports-grid" id="reports-grid"></div>
+
+      <!-- Report detail overlay -->
+      <div id="report-detail-panel" class="hidden" style="margin-top:20px;">
+        <div id="report-detail-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Page: Trades ========== -->
+  <div id="page-trades" class="page">
+    <div class="content">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <div style="font-size:.95rem;font-weight:600;">交易记录</div>
+          <div style="font-size:.8rem;color:var(--text-muted);">显示通过 Broker 执行的所有交易</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-sm" id="btn-refresh-trades">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            刷新
+          </button>
+        </div>
+      </div>
+
+      <!-- Account summary -->
+      <div class="portfolio-summary" id="account-summary">
+        <div class="summary-card">
+          <div class="summary-card-label">账户总值</div>
+          <div class="summary-card-value" id="account-total-value">$0.00</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">可用资金</div>
+          <div class="summary-card-value" id="account-cash">$0.00</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">购买力</div>
+          <div class="summary-card-value" id="account-buying-power">$0.00</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-card-label">Broker</div>
+          <div class="summary-card-value" id="account-broker">-</div>
+        </div>
+      </div>
+
+      <!-- Trade table -->
+      <div class="table-wrap">
+        <div class="table-header">
+          <span class="table-title">交易历史</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>代码</th>
+              <th>方向</th>
+              <th>数量</th>
+              <th>价格</th>
+              <th>状态</th>
+              <th>订单号</th>
+            </tr>
+          </thead>
+          <tbody id="trades-tbody">
+            <tr><td colspan="7" class="text-muted" style="text-align:center;padding:30px;">暂无交易记录</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Page: Logs ========== -->
+  <div id="page-logs" class="page">
+    <div class="content">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <div style="font-size:.95rem;font-weight:600;">运行日志</div>
+          <div style="font-size:.8rem;color:var(--text-muted);">系统运行日志（今日）</div>
+        </div>
+        <div class="flex gap-2">
+          <select id="log-lines-select" class="settings-input" style="width:100px;padding:5px 8px;font-size:.8rem;">
+            <option value="50">最近 50 条</option>
+            <option value="100" selected>最近 100 条</option>
+            <option value="200">最近 200 条</option>
+            <option value="500">最近 500 条</option>
+          </select>
+          <button class="btn btn-sm" id="btn-refresh-logs">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            刷新
+          </button>
+        </div>
+      </div>
+
+      <div id="logs-container" style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;font-family:var(--mono);font-size:.75rem;line-height:1.6;max-height:calc(100vh - 200px);overflow-y:auto;white-space:pre-wrap;word-break:break-all;color:var(--text-sec);">
+        加载中...
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Page: Modes ========== -->
+  <div id="page-modes" class="page">
+    <div class="content">
+      <!-- Execution mode -->
+      <div style="margin-bottom:24px;">
+        <div style="font-size:.95rem;font-weight:600;margin-bottom:4px;">执行模式</div>
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:16px;">控制 Supervisor 是否允许执行实际交易。分析、风险评估、状态查询等操作不受此限制，Supervisor 会根据对话意图自动调度。</div>
+      </div>
+
+      <div class="modes-grid">
+        <div class="mode-card" data-mode="observe" id="mode-card-observe">
+          <div class="mode-card-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </div>
+          <div class="mode-card-title">OBSERVE — 观察模式</div>
+          <div class="mode-card-desc">Supervisor 正常运行所有分析和评估流程，但不会执行任何实际交易。适合研究、回测和日常监控。这是默认的安全模式。</div>
+        </div>
+
+        <div class="mode-card" data-mode="active" id="mode-card-active">
+          <div class="mode-card-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </div>
+          <div class="mode-card-title">ACTIVE — 执行模式</div>
+          <div class="mode-card-desc">Supervisor 拥有完整自主权，分析后可直接通过 Broker 执行交易。适合实盘或模拟盘自动交易场景。</div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;padding:12px 16px;background:var(--bg-tertiary);border-radius:8px;font-size:.8rem;color:var(--text-muted);">
+        Supervisor 会根据你的对话意图自动决定执行什么操作（分析、评估、查询状态、管理持仓等），无需手动选择流程。唯一需要你控制的是：是否允许执行实际交易。
+      </div>
+
+      <!-- System status -->
+      <div class="system-status">
+        <div class="system-status-title">系统状态</div>
+        <div class="status-grid" id="status-grid">
+          <div class="status-item">
+            <span class="status-dot" id="dot-supervisor"></span>
+            <span class="status-item-label">Supervisor</span>
+            <span class="status-item-value" id="val-supervisor">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-dot" id="dot-intelligence"></span>
+            <span class="status-item-label">数据分析团队</span>
+            <span class="status-item-value" id="val-intelligence">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-dot" id="dot-risk"></span>
+            <span class="status-item-label">风险评估团队</span>
+            <span class="status-item-value" id="val-risk">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-dot" id="dot-execution"></span>
+            <span class="status-item-label">交易执行团队</span>
+            <span class="status-item-value" id="val-execution">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-dot" id="dot-scheduler"></span>
+            <span class="status-item-label">调度器</span>
+            <span class="status-item-value" id="val-scheduler">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-dot" id="dot-broker"></span>
+            <span class="status-item-label">Broker</span>
+            <span class="status-item-value" id="val-broker">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-dot" id="dot-positions"></span>
+            <span class="status-item-label">持仓数量</span>
+            <span class="status-item-value" id="val-positions">-</span>
+          </div>
+          <div class="status-item">
+            <span class="status-dot" id="dot-exec-mode"></span>
+            <span class="status-item-label">执行模式</span>
+            <span class="status-item-value" id="val-exec-mode">-</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Page: Strategy ========== -->
+  <div id="page-strategy" class="page">
+    <div class="content">
+
+      <!-- Preset bar (same style as settings page top) -->
+      <div class="settings-section">
+        <div class="settings-section-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+          策略预设
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">当前预设</div>
+            <div class="settings-hint">切换内置预设或自定义参数后保存</div>
+          </div>
+          <div class="flex gap-2 items-center">
+            <select id="strategy-preset-select" class="settings-input" style="width:140px;cursor:pointer;">
+              <option value="conservative">保守型</option>
+              <option value="balanced" selected>均衡型</option>
+              <option value="aggressive">激进型</option>
+            </select>
+            <button class="btn btn-sm" id="btn-strategy-reset">重置默认</button>
+            <button class="btn btn-sm btn-primary" id="btn-strategy-save">保存策略</button>
+          </div>
+        </div>
+        <div id="strategy-warnings" class="hidden" style="padding:8px 0 0;font-size:.75rem;color:#92400e;"></div>
+      </div>
+
+      <!-- Two-column layout -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;">
+
+        <!-- Left column -->
+        <div>
+          <!-- Technical Indicators -->
+          <div class="settings-section">
+            <div class="settings-section-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              技术指标参数
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">RSI 窗口期</div><div class="settings-hint">相对强弱指数计算窗口</div></div>
+              <input class="settings-input" id="s-rsi-window" type="number" min="2" max="100" step="1" value="14" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">MACD 快线</div><div class="settings-hint">快速 EMA 周期</div></div>
+              <input class="settings-input" id="s-macd-fast" type="number" min="2" max="50" step="1" value="12" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">MACD 慢线</div><div class="settings-hint">慢速 EMA 周期</div></div>
+              <input class="settings-input" id="s-macd-slow" type="number" min="10" max="100" step="1" value="26" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">MACD 信号线</div><div class="settings-hint">信号线 EMA 周期</div></div>
+              <input class="settings-input" id="s-macd-signal" type="number" min="2" max="50" step="1" value="9" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">布林带窗口</div><div class="settings-hint">布林带 SMA 窗口</div></div>
+              <input class="settings-input" id="s-bb-window" type="number" min="5" max="100" step="1" value="20" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">布林带标准差</div><div class="settings-hint">标准差倍数</div></div>
+              <input class="settings-input" id="s-bb-std" type="number" min="0.5" max="5" step="0.1" value="2.0" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">ATR 窗口期</div><div class="settings-hint">真实波幅计算窗口</div></div>
+              <input class="settings-input" id="s-atr-window" type="number" min="2" max="100" step="1" value="14" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">短期 SMA</div><div class="settings-hint">短期均线周期</div></div>
+              <input class="settings-input" id="s-sma-short" type="number" min="5" max="200" step="1" value="50" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">长期 SMA</div><div class="settings-hint">长期均线周期</div></div>
+              <input class="settings-input" id="s-sma-long" type="number" min="50" max="500" step="1" value="200" style="width:100px;" />
+            </div>
+          </div>
+
+          <!-- Data Fetching -->
+          <div class="settings-section">
+            <div class="settings-section-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9"/></svg>
+              数据获取参数
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">K线数量</div><div class="settings-hint">获取日K线条数</div></div>
+              <input class="settings-input" id="s-kline-count" type="number" min="30" max="500" step="10" value="120" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">回看天数</div><div class="settings-hint">新闻/基本面回看天数</div></div>
+              <input class="settings-input" id="s-lookback-days" type="number" min="7" max="365" step="1" value="30" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">个股新闻</div><div class="settings-hint">个股新闻获取条数</div></div>
+              <input class="settings-input" id="s-news-ticker" type="number" min="1" max="50" step="1" value="10" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">全球新闻</div><div class="settings-hint">全球头条获取条数</div></div>
+              <input class="settings-input" id="s-news-global" type="number" min="1" max="30" step="1" value="8" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">RSS 超时</div><div class="settings-hint">RSS 请求超时（秒）</div></div>
+              <input class="settings-input" id="s-rss-timeout" type="number" min="3" max="60" step="1" value="10" style="width:100px;" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Right column -->
+        <div>
+          <!-- Risk Control -->
+          <div class="settings-section">
+            <div class="settings-section-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              风险控制参数
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">止损下限 %</div><div class="settings-hint">低波动股最小止损</div></div>
+              <input class="settings-input" id="s-stop-loss-min" type="number" min="0.5" max="20" step="0.5" value="2" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">止损上限 %</div><div class="settings-hint">高波动股最大止损</div></div>
+              <input class="settings-input" id="s-stop-loss-max" type="number" min="2" max="30" step="0.5" value="10" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">仓位下限 %</div><div class="settings-hint">单笔最小仓位</div></div>
+              <input class="settings-input" id="s-position-min" type="number" min="0.5" max="20" step="0.5" value="2" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">仓位上限 %</div><div class="settings-hint">单笔最大仓位</div></div>
+              <input class="settings-input" id="s-position-max" type="number" min="2" max="50" step="0.5" value="10" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">风险回报比</div><div class="settings-hint">最低要求（如 1:2）</div></div>
+              <input class="settings-input" id="s-risk-reward" type="number" min="1" max="10" step="0.1" value="1.5" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">止损底线 %</div><div class="settings-hint">止损最小距离</div></div>
+              <input class="settings-input" id="s-min-stop-distance" type="number" min="0.1" max="5" step="0.1" value="1" style="width:100px;" />
+            </div>
+          </div>
+
+          <!-- Market Detection -->
+          <div class="settings-section">
+            <div class="settings-section-title">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              市场环境检测
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">BB 挤压阈值</div><div class="settings-hint">低于此值判为区间震荡</div></div>
+              <input class="settings-input" id="s-bb-squeeze" type="number" min="0.01" max="0.2" step="0.01" value="0.04" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">ATR 趋势阈值</div><div class="settings-hint">超过均值此倍为高波动</div></div>
+              <input class="settings-input" id="s-atr-trend" type="number" min="1" max="5" step="0.1" value="1.5" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">支撑阻力区间 %</div><div class="settings-hint">距S/R多近算"接近"</div></div>
+              <input class="settings-input" id="s-zone-threshold" type="number" min="0.5" max="10" step="0.5" value="2" style="width:100px;" />
+            </div>
+            <div class="settings-row">
+              <div><div class="settings-label">最少K线数</div><div class="settings-hint">环境检测所需最少条数</div></div>
+              <input class="settings-input" id="s-min-bars" type="number" min="20" max="200" step="5" value="50" style="width:100px;" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========== Page: Settings ========== -->
+  <div id="page-settings" class="page">
+    <div class="content">
+      <!-- LLM Config -->
+      <div class="settings-section">
+        <div class="settings-section-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          LLM 配置
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">API 地址</div>
+            <div class="settings-hint">LLM 服务的 Base URL</div>
+          </div>
+          <input class="settings-input" id="setting-llm-url" value="http://192.168.192.70:3030/v1" />
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">模型名称</div>
+            <div class="settings-hint">使用的模型 ID</div>
+          </div>
+          <input class="settings-input" id="setting-llm-model" value="gpt-5.3-codex" />
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Temperature</div>
+            <div class="settings-hint">生成随机性（0-1）</div>
+          </div>
+          <input class="settings-input" id="setting-llm-temp" value="0.2" style="width:100px;" />
+        </div>
+      </div>
+
+      <!-- Scheduler Config -->
+      <div class="settings-section">
+        <div class="settings-section-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          调度器配置
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">持仓扫描</div>
+            <div class="settings-hint">定时触发完整流水线分析</div>
+          </div>
+          <input class="settings-input" id="setting-scan-cron" value="0 */4 * * 1-5" style="width:180px;" />
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">券商同步</div>
+            <div class="settings-hint">从 Broker API 同步持仓</div>
+          </div>
+          <input class="settings-input" id="setting-sync-cron" value="0 9 * * 1-5" style="width:180px;" />
+        </div>
+      </div>
+
+      <!-- Broker Config -->
+      <div class="settings-section">
+        <div class="settings-section-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          Broker 配置
+          <span id="broker-connection-badge" style="margin-left:auto;font-size:.7rem;padding:2px 8px;border-radius:10px;background:#f5f5f5;color:var(--text-muted);">未连接</span>
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">Broker 类型</div>
+            <div class="settings-hint">富途模拟盘（默认） / 内置模拟盘</div>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-sm btn-primary" id="btn-broker-futu" onclick="selectBrokerType('futu')">富途模拟盘</button>
+            <button class="btn btn-sm" id="btn-broker-simulated" onclick="selectBrokerType('simulated')">内置模拟盘</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">初始资金</div>
+            <div class="settings-hint">内置模拟盘初始资金量（富途模拟盘由账户决定）</div>
+          </div>
+          <input class="settings-input" id="setting-init-cash" value="100000" style="width:140px;" />
+        </div>
+
+        <!-- Futu-specific settings (shown by default) -->
+        <div id="futu-settings-panel">
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">OpenD 地址</div>
+              <div class="settings-hint">OpenD 网关 Host</div>
+            </div>
+            <input class="settings-input" id="setting-futu-host" value="127.0.0.1" style="width:180px;" />
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">OpenD 端口</div>
+              <div class="settings-hint">OpenD 网关 Port</div>
+            </div>
+            <input class="settings-input" id="setting-futu-port" value="11111" style="width:100px;" />
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">交易环境</div>
+              <div class="settings-hint">模拟盘 / 实盘</div>
+            </div>
+            <select class="settings-input" id="setting-futu-trd-env" style="width:140px;cursor:pointer;">
+              <option value="simulate">模拟盘 (Simulate)</option>
+              <option value="real">实盘 (Real)</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">默认市场</div>
+              <div class="settings-hint">HK / US / CN</div>
+            </div>
+            <select class="settings-input" id="setting-futu-market" style="width:100px;cursor:pointer;">
+              <option value="HK">HK</option>
+              <option value="US">US</option>
+              <option value="CN">CN</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">行情功能</div>
+              <div class="settings-hint">启用富途实时行情</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="setting-futu-quote" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Risk Config -->
+      <div class="settings-section">
+        <div class="settings-section-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          风控参数
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">最大单笔仓位</div>
+            <div class="settings-hint">单只股票占总资产比例上限</div>
+          </div>
+          <input class="settings-input" id="setting-max-position" value="20%" style="width:100px;" />
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-label">辩论轮次</div>
+            <div class="settings-hint">牛熊辩论和风险辩论的最大轮次</div>
+          </div>
+          <input class="settings-input" id="setting-debate-rounds" value="3" style="width:100px;" />
+        </div>
+      </div>
+
+      <div class="flex justify-between mt-4">
+        <button class="btn btn-danger" onclick="if(confirm('确定重置？')) showToast('设置已重置', 'info')">重置默认</button>
+        <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container" class="toast-container"></div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/router.js"></script>
+<script src="/static/js/app.js"></script>
+
+</body>
+</html>

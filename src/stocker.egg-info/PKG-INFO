@@ -1,0 +1,30 @@
+Metadata-Version: 2.4
+Name: stocker
+Version: 0.1.0
+Summary: Multi-Agent automated range/swing trading system powered by LangGraph
+Requires-Python: >=3.10
+Requires-Dist: langgraph>=0.4.8
+Requires-Dist: langchain-openai>=0.3.0
+Requires-Dist: langchain-core>=0.3.0
+Requires-Dist: apscheduler>=3.10.0
+Requires-Dist: fastapi>=0.115.0
+Requires-Dist: uvicorn[standard]>=0.30.0
+Requires-Dist: typer[all]>=0.12.0
+Requires-Dist: rich>=13.0.0
+Requires-Dist: yfinance>=0.2.40
+Requires-Dist: requests>=2.31.0
+Requires-Dist: pandas>=2.1.0
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: rank-bm25>=0.2.2
+Requires-Dist: pydantic>=2.5.0
+Requires-Dist: pydantic-settings>=2.1.0
+Requires-Dist: python-dotenv>=1.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23.0; extra == "dev"
+Requires-Dist: ruff>=0.5.0; extra == "dev"
+Provides-Extra: brokers
+Requires-Dist: futu-api>=9.0; extra == "brokers"
+Requires-Dist: easytrader>=0.20.0; extra == "brokers"
+Requires-Dist: ib_insync>=0.9.86; extra == "brokers"
+Requires-Dist: ccxt>=4.0.0; extra == "brokers"
