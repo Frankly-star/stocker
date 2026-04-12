@@ -76,15 +76,17 @@ def _build_supervisor_graph(service: Any = None) -> tuple[Any | None, Any | None
         from stocker.config import create_llm, load_config
         from stocker.agents.supervisor import create_supervisor_tools
         from stocker.graphs.main_graph import build_main_graph
-        from stocker.portfolio.store import PositionStore
         from stocker.memory.bm25_memory import BM25Memory
 
         config = load_config()
         llm = create_llm(config, "deep")
-        store = PositionStore()
 
-        # --- Build Futu Runtime (default broker) ---
-        if config.get("broker_type", "futu") != "simulated":
+        from stocker.portfolio.store import create_position_store
+        store = create_position_store(config.get("broker_type", "futu"))
+
+        # --- Build Futu Runtime (only when broker_type is futu) ---
+        broker_type = config.get("broker_type", "futu").lower()
+        if broker_type == "futu":
             try:
                 from stocker.integrations.futu.config import FutuConfig
                 from stocker.engine.runtime import FutuRuntime
@@ -224,8 +226,10 @@ def create_app(service: Any = None) -> FastAPI:
             try:
                 positions = await broker.sync_positions()
                 if positions:
-                    from stocker.portfolio.store import PositionStore
-                    store = PositionStore()
+                    from stocker.portfolio.store import create_position_store
+                    from stocker.config import load_config as _load_cfg
+                    _cfg_sync = _load_cfg()
+                    store = create_position_store(_cfg_sync.get("broker_type", "futu"))
                     result = store.sync_from_broker(positions)
                     logger.info("Startup broker sync: %s (%d positions)", result, len(positions))
                 else:

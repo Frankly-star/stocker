@@ -47,6 +47,20 @@ class ChatRequest(BaseModel):
     message: str
 
 
+class BacktestRequest(BaseModel):
+    symbols: list[str]
+    start_date: str = "2024-01-01"
+    end_date: str = "2024-12-31"
+    initial_cash: float = 100_000.0
+    commission_rate: float = 0.001
+    slippage_pct: float = 0.001
+    data_source: str = "yfinance"
+    data_path: str = ""
+    run_mode: str = "rule"
+    bar_frequency: str = "daily"
+    benchmark: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Conversation memory (in-memory, single-session)
 # ---------------------------------------------------------------------------
@@ -332,8 +346,8 @@ def create_router(service: Any = None, graph: Any = None, runtime: Any = None, b
 
     @router.post("/portfolio")
     async def manage_portfolio(req: PortfolioRequest):
-        from stocker.portfolio.store import PositionStore
-        store = PositionStore()
+        from stocker.portfolio.store import create_position_store
+        store = create_position_store()
         if req.action == "list":
             return {"positions": [p.model_dump(mode="json") for p in store.list_all()]}
         elif req.action == "add":
@@ -551,6 +565,37 @@ def create_router(service: Any = None, graph: Any = None, runtime: Any = None, b
             "strategy": config.model_dump(mode="json"),
             "message": "策略已重置为默认（均衡型）",
         }
+
+    # ------------------------------------------------------------------
+    # Backtest endpoint
+    # ------------------------------------------------------------------
+
+    @router.post("/api/v1/backtest")
+    async def run_backtest(req: BacktestRequest):
+        """Run a historical backtest and return the report."""
+        from stocker.backtest import BacktestConfig, BacktestRuntime
+
+        config = BacktestConfig(
+            symbols=req.symbols,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            initial_cash=req.initial_cash,
+            commission_rate=req.commission_rate,
+            slippage_pct=req.slippage_pct,
+            data_source=req.data_source,
+            data_path=req.data_path,
+            run_mode=req.run_mode,
+            bar_frequency=req.bar_frequency,
+            benchmark=req.benchmark,
+        )
+
+        # Run backtest in a thread pool to avoid blocking the event loop
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        runtime = BacktestRuntime(config)
+        report = await loop.run_in_executor(None, runtime.run)
+        return report.model_dump(mode="json")
 
     return router
 

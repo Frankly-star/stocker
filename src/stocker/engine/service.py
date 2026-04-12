@@ -42,8 +42,9 @@ class StockerService:
         # 1. Start EventBus
         await self.event_bus.start()
 
-        # 2. Start FutuRuntime (default broker)
-        if self.config.get("broker_type", "futu") != "simulated":
+        # 2. Start FutuRuntime only when broker_type is "futu"
+        broker_type = self.config.get("broker_type", "futu").lower()
+        if broker_type == "futu":
             try:
                 from stocker.integrations.futu.config import FutuConfig
                 from stocker.engine.runtime import FutuRuntime
@@ -55,6 +56,10 @@ class StockerService:
             except Exception as e:
                 logger.warning("Failed to start FutuRuntime in service: %s", e)
                 self.runtime = None
+        else:
+            logger.info(
+                "broker_type=%s — skipping FutuRuntime / OpenD startup", broker_type
+            )
 
         # 3. Create broker
         try:
@@ -156,9 +161,10 @@ class StockerService:
             try:
                 positions = await self.broker.sync_positions()
                 if positions:
-                    from stocker.portfolio.store import PositionStore
+                    from stocker.portfolio.store import create_position_store
 
-                    store = PositionStore()
+                    broker_type = self.config.get("broker_type", "futu")
+                    store = create_position_store(broker_type)
                     result = store.sync_from_broker(positions)
                     logger.info("[Scheduled] Broker sync complete: %s", result)
                 else:

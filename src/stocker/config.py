@@ -56,6 +56,19 @@ def load_config(env_path: str | None = None) -> dict:
         # Debate
         "max_debate_rounds": int(os.getenv("STOCKER_MAX_DEBATE_ROUNDS", "1")),
         "max_risk_discuss_rounds": int(os.getenv("STOCKER_MAX_RISK_DISCUSS_ROUNDS", "1")),
+
+        # Backtest
+        "backtest_symbols": os.getenv("STOCKER_BACKTEST_SYMBOLS", ""),  # comma-separated
+        "backtest_start_date": os.getenv("STOCKER_BACKTEST_START_DATE", "2024-01-01"),
+        "backtest_end_date": os.getenv("STOCKER_BACKTEST_END_DATE", "2024-12-31"),
+        "backtest_initial_cash": float(os.getenv("STOCKER_BACKTEST_INITIAL_CASH", "100000")),
+        "backtest_commission_rate": float(os.getenv("STOCKER_BACKTEST_COMMISSION_RATE", "0.001")),
+        "backtest_slippage_pct": float(os.getenv("STOCKER_BACKTEST_SLIPPAGE_PCT", "0.001")),
+        "backtest_data_source": os.getenv("STOCKER_BACKTEST_DATA_SOURCE", "yfinance"),
+        "backtest_data_path": os.getenv("STOCKER_BACKTEST_DATA_PATH", ""),
+        "backtest_run_mode": os.getenv("STOCKER_BACKTEST_RUN_MODE", "rule"),
+        "backtest_bar_frequency": os.getenv("STOCKER_BACKTEST_BAR_FREQUENCY", "daily"),
+        "backtest_benchmark": os.getenv("STOCKER_BACKTEST_BENCHMARK", ""),
     }
 
 
