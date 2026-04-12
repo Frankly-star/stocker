@@ -1,4 +1,16 @@
-"""PositionStore: unified position management with dual-mode support."""
+"""PositionStore: unified position management with dual-mode support.
+
+Data isolation
+--------------
+Each ``broker_type`` gets its own data directory to prevent cross-contamination:
+
+- ``futu``      → ``data/futu/positions.json``
+- ``simulated`` → ``data/simulated/positions.json``
+- ``backtest``  → ``data/backtest/positions.json``
+
+Use :func:`create_position_store` to automatically resolve the correct path
+based on the current configuration.
+"""
 
 from __future__ import annotations
 
@@ -11,12 +23,62 @@ from stocker.utils.helpers import atomic_json_write, json_read
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Path resolution helpers
+# ---------------------------------------------------------------------------
+
+_VALID_BROKER_TYPES = {"futu", "simulated", "backtest"}
+
+
+def _resolve_data_dir(broker_type: str, base_dir: str = "data") -> Path:
+    """Return the data directory for a given broker_type.
+
+    Layout::
+
+        data/
+        ├── futu/
+        │   ├── positions.json
+        │   └── trades.json
+        ├── simulated/
+        │   ├── positions.json
+        │   └── trades.json
+        └── backtest/
+            ├── positions.json
+            └── trades.json
+    """
+    bt = broker_type.lower()
+    if bt not in _VALID_BROKER_TYPES:
+        logger.warning("Unknown broker_type %r — defaulting to 'simulated'", bt)
+        bt = "simulated"
+    return Path(base_dir) / bt
+
+
+def create_position_store(broker_type: str | None = None, base_dir: str = "data") -> "PositionStore":
+    """Factory: create a PositionStore isolated by broker_type.
+
+    If *broker_type* is ``None``, it is read from the current stocker config.
+    """
+    if broker_type is None:
+        try:
+            from stocker.config import load_config
+            cfg = load_config()
+            broker_type = cfg.get("broker_type", "simulated")
+        except Exception:
+            broker_type = "simulated"
+
+    data_dir = _resolve_data_dir(broker_type, base_dir)
+    filepath = data_dir / "positions.json"
+    logger.debug("PositionStore → %s", filepath)
+    return PositionStore(filepath=str(filepath), broker_type=broker_type)
+
 
 class PositionStore:
     """Manages all positions with source tracking and persistence."""
 
-    def __init__(self, filepath: str = "data/positions.json") -> None:
+    def __init__(self, filepath: str = "data/positions.json", broker_type: str = "") -> None:
         self._filepath = Path(filepath)
+        self._filepath.parent.mkdir(parents=True, exist_ok=True)
+        self._broker_type = broker_type
         self._positions: dict[str, Position] = {}
         self._load()
 

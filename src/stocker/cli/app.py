@@ -102,9 +102,9 @@ def portfolio(
     cost: float = typer.Option(0.0, help="Average cost per share"),
 ):
     """Manage portfolio positions."""
-    from stocker.portfolio.store import PositionStore
+    from stocker.portfolio.store import create_position_store
 
-    store = PositionStore()
+    store = create_position_store()
 
     if action == "list":
         positions = store.list_all()
@@ -132,6 +132,69 @@ def portfolio(
             console.print(f"[green]Removed {ticker.upper()}[/green]")
         else:
             console.print(f"[red]{ticker.upper()} not found[/red]")
+
+
+@app.command()
+def backtest(
+    symbols: str = typer.Option("AAPL", help="Comma-separated ticker symbols"),
+    start: str = typer.Option("2024-01-01", help="Start date (yyyy-mm-dd)"),
+    end: str = typer.Option("2024-12-31", help="End date (yyyy-mm-dd)"),
+    cash: float = typer.Option(100000.0, help="Initial cash"),
+    mode: str = typer.Option("rule", help="Run mode: rule / full"),
+    commission: float = typer.Option(0.001, help="Commission rate"),
+    slippage: float = typer.Option(0.001, help="Slippage percentage"),
+    source: str = typer.Option("yfinance", help="Data source: yfinance / csv / parquet"),
+    data_path: str = typer.Option("", help="Local data path (for csv/parquet)"),
+    benchmark: str = typer.Option("", help="Benchmark ticker (e.g. SPY)"),
+):
+    """Run a historical backtest."""
+    from stocker.backtest import BacktestConfig, BacktestRuntime
+
+    symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if not symbol_list:
+        console.print("[red]No symbols provided[/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        f"[bold]Running backtest:[/bold] {', '.join(symbol_list)} "
+        f"from {start} to {end} (mode={mode})"
+    )
+
+    config = BacktestConfig(
+        symbols=symbol_list,
+        start_date=start,
+        end_date=end,
+        initial_cash=cash,
+        commission_rate=commission,
+        slippage_pct=slippage,
+        data_source=source,
+        data_path=data_path,
+        run_mode=mode,
+        benchmark=benchmark,
+    )
+
+    runtime = BacktestRuntime(config)
+    report = runtime.run()
+
+    # Print summary
+    m = report.metrics
+    console.print("\n[bold green]Backtest Results[/bold green]")
+    console.print(f"  Duration: {report.duration_seconds:.1f}s")
+    console.print(f"  Total Return: {m.total_return_pct:+.2f}%")
+    console.print(f"  Annualized Return: {m.annualized_return_pct:+.2f}%")
+    console.print(f"  Max Drawdown: {m.max_drawdown_pct:.2f}%")
+    console.print(f"  Sharpe Ratio: {m.sharpe_ratio:.4f}")
+    console.print(f"  Sortino Ratio: {m.sortino_ratio:.4f}")
+    console.print(f"  Total Trades: {m.total_trades}")
+    console.print(f"  Win Rate: {m.win_rate:.1f}%")
+    console.print(f"  Profit/Loss Ratio: {m.profit_loss_ratio:.2f}")
+    console.print(f"  Total Commission: ${m.total_commission:,.2f}")
+
+    if report.equity_curve:
+        final = report.equity_curve[-1]
+        console.print(f"  Final NAV: ${final.nav:,.2f}")
+
+    console.print(f"\n  Report saved: data/backtest/reports/")
 
 
 @app.command()

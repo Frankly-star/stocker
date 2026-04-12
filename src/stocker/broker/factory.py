@@ -38,6 +38,16 @@ def create_broker(config: dict, runtime: Any | None = None) -> BaseBroker:
     """
     broker_type = config.get("broker_type", "futu").lower()
 
+    # --- Backtest ---
+    if broker_type == "backtest":
+        logger.info("broker_type=backtest — BacktestBroker will be created by BacktestRuntime")
+        # BacktestBroker requires clock + data_store, so it is created inside
+        # BacktestRuntime.run().  Return a SimulatedBroker as placeholder for
+        # any pre-run code that needs a broker reference.
+        from stocker.broker.simulated import SimulatedBroker
+
+        return SimulatedBroker()
+
     # --- Explicit simulated ---
     if broker_type == "simulated":
         from stocker.broker.simulated import SimulatedBroker
