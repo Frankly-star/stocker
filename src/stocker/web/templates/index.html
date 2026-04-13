@@ -37,11 +37,19 @@
         </a>
       </li>
       <li>
-        <a href="#portfolio" data-page="portfolio">
+        <a href="#stocks" data-page="stocks">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
           </svg>
-          持仓
+          股票池
+        </a>
+      </li>
+      <li>
+        <a href="#trading" data-page="trading">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          交易
         </a>
       </li>
       <li>
@@ -50,14 +58,6 @@
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
           </svg>
           报告
-        </a>
-      </li>
-      <li>
-        <a href="#trades" data-page="trades">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
-          </svg>
-          交易记录
         </a>
       </li>
       <li>
@@ -164,58 +164,73 @@
     </div>
   </div>
 
-  <!-- ========== Page: Portfolio ========== -->
-  <div id="page-portfolio" class="page">
+  <!-- ========== Page: Stocks (merged Portfolio + Watchlist) ========== -->
+  <div id="page-stocks" class="page">
     <div class="content">
       <!-- Summary cards -->
       <div class="portfolio-summary">
         <div class="summary-card">
-          <div class="summary-card-label">总市值</div>
-          <div class="summary-card-value" id="summary-total-value">$0.00</div>
+          <div class="summary-card-label">持仓总市值</div>
+          <div class="summary-card-value" id="stocks-total-value">$0.00</div>
         </div>
         <div class="summary-card">
           <div class="summary-card-label">未实现盈亏</div>
-          <div class="summary-card-value positive" id="summary-total-pnl">$0.00</div>
+          <div class="summary-card-value positive" id="stocks-total-pnl">$0.00</div>
         </div>
         <div class="summary-card">
-          <div class="summary-card-label">持仓数量</div>
-          <div class="summary-card-value" id="summary-position-count">0</div>
+          <div class="summary-card-label">股票总数</div>
+          <div class="summary-card-value" id="stocks-count">0</div>
         </div>
         <div class="summary-card">
-          <div class="summary-card-label">今日信号</div>
-          <div class="summary-card-value" id="summary-signals">-</div>
+          <div class="summary-card-label">活跃信号</div>
+          <div class="summary-card-value" id="stocks-signals">0</div>
         </div>
       </div>
 
-      <!-- Position table -->
-      <div class="table-wrap">
-        <div class="table-header">
-          <span class="table-title">持仓列表</span>
-          <div class="flex gap-2">
-            <button class="btn btn-sm" id="btn-refresh-portfolio">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-              刷新
-            </button>
-            <button class="btn btn-sm btn-primary" id="btn-add-position">+ 添加</button>
-          </div>
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <div class="tab-bar-tabs">
+          <button class="tab-btn active" data-tab="all" id="stocks-tab-all">全部</button>
+          <button class="tab-btn" data-tab="held" id="stocks-tab-held">已持仓</button>
+          <button class="tab-btn" data-tab="watching" id="stocks-tab-watching">观察中</button>
         </div>
+        <div class="tab-bar-actions">
+          <button class="btn btn-sm" id="btn-scan-stocks">扫描信号</button>
+          <button class="btn btn-sm" id="btn-refresh-stocks">刷新</button>
+          <button class="btn btn-sm btn-primary" id="btn-add-stock">+ 添加</button>
+        </div>
+      </div>
+
+      <!-- Unified stock table -->
+      <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>代码</th>
               <th>名称</th>
+              <th>市场</th>
+              <th>标签</th>
               <th>数量</th>
               <th>成本</th>
               <th>现价</th>
               <th>盈亏</th>
-              <th>盈亏%</th>
+              <th>信号</th>
+              <th>强度</th>
               <th>操作</th>
             </tr>
           </thead>
-          <tbody id="portfolio-tbody">
-            <tr><td colspan="8" class="text-muted" style="text-align:center;padding:30px;">暂无持仓数据</td></tr>
+          <tbody id="stocks-tbody">
+            <tr><td colspan="11" class="text-muted" style="text-align:center;padding:30px;">加载中...</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Scan results (conditional) -->
+      <div class="table-wrap" id="stocks-scan-wrap" style="display:none;margin-top:16px;">
+        <div class="table-header">
+          <span class="table-title">扫描结果</span>
+        </div>
+        <div id="stocks-scan-content"></div>
       </div>
     </div>
   </div>
@@ -242,63 +257,90 @@
     </div>
   </div>
 
-  <!-- ========== Page: Trades ========== -->
-  <div id="page-trades" class="page">
+  <!-- ========== Page: Trading (merged Swing Trades + Trade History) ========== -->
+  <div id="page-trading" class="page">
     <div class="content">
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <div style="font-size:.95rem;font-weight:600;">交易记录</div>
-          <div style="font-size:.8rem;color:var(--text-muted);">显示通过 Broker 执行的所有交易</div>
-        </div>
-        <div class="flex gap-2">
-          <button class="btn btn-sm" id="btn-refresh-trades">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-            刷新
-          </button>
-        </div>
-      </div>
-
-      <!-- Account summary -->
-      <div class="portfolio-summary" id="account-summary">
+      <!-- Summary cards -->
+      <div class="portfolio-summary" id="trading-summary">
         <div class="summary-card">
           <div class="summary-card-label">账户总值</div>
-          <div class="summary-card-value" id="account-total-value">$0.00</div>
+          <div class="summary-card-value" id="trading-account-value">$0.00</div>
         </div>
         <div class="summary-card">
           <div class="summary-card-label">可用资金</div>
-          <div class="summary-card-value" id="account-cash">$0.00</div>
+          <div class="summary-card-value" id="trading-cash">$0.00</div>
         </div>
         <div class="summary-card">
-          <div class="summary-card-label">购买力</div>
-          <div class="summary-card-value" id="account-buying-power">$0.00</div>
+          <div class="summary-card-label">波段胜率</div>
+          <div class="summary-card-value" id="trading-winrate">0%</div>
         </div>
         <div class="summary-card">
-          <div class="summary-card-label">Broker</div>
-          <div class="summary-card-value" id="account-broker">-</div>
+          <div class="summary-card-label">波段总盈亏</div>
+          <div class="summary-card-value" id="trading-pnl">$0.00</div>
         </div>
       </div>
 
-      <!-- Trade table -->
-      <div class="table-wrap">
-        <div class="table-header">
-          <span class="table-title">交易历史</span>
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <div class="tab-bar-tabs">
+          <button class="tab-btn active" data-tab="swing" id="trading-tab-swing">波段操作</button>
+          <button class="tab-btn" data-tab="history" id="trading-tab-history">执行记录</button>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>时间</th>
-              <th>代码</th>
-              <th>方向</th>
-              <th>数量</th>
-              <th>价格</th>
-              <th>状态</th>
-              <th>订单号</th>
-            </tr>
-          </thead>
-          <tbody id="trades-tbody">
-            <tr><td colspan="7" class="text-muted" style="text-align:center;padding:30px;">暂无交易记录</td></tr>
-          </tbody>
-        </table>
+        <div class="tab-bar-actions" id="trading-actions">
+          <select id="trading-sw-filter" class="btn btn-sm" style="cursor:pointer;">
+            <option value="">全部</option>
+            <option value="open">进行中</option>
+            <option value="closed">已完结</option>
+          </select>
+          <button class="btn btn-sm" id="btn-refresh-trading">刷新</button>
+        </div>
+      </div>
+
+      <!-- Tab: Swing Trades -->
+      <div class="tab-pane active" id="pane-swing">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>代码</th>
+                <th>状态</th>
+                <th>入场价</th>
+                <th>入场时间</th>
+                <th>出场价</th>
+                <th>盈亏</th>
+                <th>盈亏%</th>
+                <th>持仓天数</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="trading-swing-tbody">
+              <tr><td colspan="10" class="text-muted" style="text-align:center;padding:30px;">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Execution History -->
+      <div class="tab-pane" id="pane-history">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>代码</th>
+                <th>方向</th>
+                <th>数量</th>
+                <th>价格</th>
+                <th>状态</th>
+                <th>订单号</th>
+              </tr>
+            </thead>
+            <tbody id="trading-history-tbody">
+              <tr><td colspan="7" class="text-muted" style="text-align:center;padding:30px;">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -359,6 +401,24 @@
           </div>
           <div class="mode-card-title">ACTIVE — 执行模式</div>
           <div class="mode-card-desc">Supervisor 拥有完整自主权，分析后可直接通过 Broker 执行交易。适合实盘或模拟盘自动交易场景。</div>
+        </div>
+      </div>
+
+      <!-- Auto-Pilot Control -->
+      <div style="margin-top:24px;">
+        <div style="font-size:.95rem;font-weight:600;margin-bottom:4px;">自动投研 (AutoPilot)</div>
+        <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:16px;">开启后 Supervisor 将定期自主执行：行业研究 → 选股 → 信号扫描 → 深度分析 → 自动建仓/平仓。需配合 ACTIVE 模式才会实际交易。</div>
+      </div>
+
+      <div class="modes-grid">
+        <div class="mode-card" id="autopilot-card" style="cursor:pointer;">
+          <div class="mode-card-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div class="mode-card-title" id="autopilot-title">AutoPilot — 已关闭</div>
+          <div class="mode-card-desc">点击切换。开启后每小时自动执行一轮投研周期：发现行业机会 → 添加观察股 → 扫描信号 → 分析评估 → 交易执行。</div>
         </div>
       </div>
 

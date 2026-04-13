@@ -89,7 +89,16 @@ def _sse_event(event: str, data: dict) -> str:
 # Router factory
 # ---------------------------------------------------------------------------
 
-def create_router(service: Any = None, graph: Any = None, runtime: Any = None, broker: Any = None) -> APIRouter:
+def create_router(
+    service: Any = None,
+    graph: Any = None,
+    runtime: Any = None,
+    broker: Any = None,
+    watchlist_store: Any = None,
+    swing_store: Any = None,
+    trade_store: Any = None,
+    position_store: Any = None,
+) -> APIRouter:
     router = APIRouter()
 
     def _get_execution_mode() -> str:
@@ -110,9 +119,7 @@ def create_router(service: Any = None, graph: Any = None, runtime: Any = None, b
 
     @router.get("/status")
     async def get_status():
-        from stocker.portfolio.store import PositionStore
-        store = PositionStore()
-        positions = store.list_all()
+        positions = position_store.list_all() if position_store else []
 
         status = {
             "status": "running",
@@ -174,6 +181,14 @@ def create_router(service: Any = None, graph: Any = None, runtime: Any = None, b
             }
 
         try:
+            # Price validation: reject trades with no price
+            if not req.price or req.price <= 0:
+                return {
+                    "ticker": req.ticker, "action": req.action, "quantity": req.quantity,
+                    "status": "rejected",
+                    "response": f"交易被拒绝：缺少有效价格。请确保股票代码正确（如 AAPL 而非 APPL），且能获取到实时报价。",
+                }
+
             order = Order(
                 ticker=req.ticker.upper(),
                 side=OrderSide(req.action.lower()),
@@ -182,7 +197,7 @@ def create_router(service: Any = None, graph: Any = None, runtime: Any = None, b
             )
             result = await active_broker.place_order(order)
 
-            # Record trade
+            # Record trade history
             _trade_history.append({
                 "trade_id": result.order_id,
                 "ticker": result.ticker,
@@ -195,7 +210,48 @@ def create_router(service: Any = None, graph: Any = None, runtime: Any = None, b
                 "error": result.error,
             })
 
-            return {
+            # --- Auto swing trade lifecycle ---
+            swing_trade = None
+            if result.status.value == "filled" and swing_store:
+                ticker_upper = result.ticker.upper()
+                if result.side.value == "buy":
+                    # Buy → open a new swing trade
+                    swing_trade = swing_store.open_trade(
+                        ticker=ticker_upper,
+                        entry_price=result.filled_price,
+                        quantity=result.quantity,
+                        signal_source=f"broker:{result.broker}",
+                        notes=f"Auto-created from order {result.order_id}",
+                    )
+                    logger.info("Auto-opened swing trade %s for %s", swing_trade.trade_id, ticker_upper)
+                elif result.side.value == "sell":
+                    # Sell → close the oldest open swing trade for this ticker
+                    open_trades = swing_store.list_all(status="open", ticker=ticker_upper)
+                    if open_trades:
+                        closed = swing_store.close_trade(
+                            trade_id=open_trades[0].trade_id,
+                            exit_price=result.filled_price,
+                            notes=f"Auto-closed from order {result.order_id}",
+                        )
+                        if closed:
+                            swing_trade = closed
+                            logger.info("Auto-closed swing trade %s for %s, P&L=%.2f",
+                                        closed.trade_id, ticker_upper, closed.pnl)
+
+            # --- Auto update position store ---
+            if result.status.value == "filled" and position_store:
+                ticker_upper = result.ticker.upper()
+                if result.side.value == "buy":
+                    position_store.add(ticker_upper, result.quantity, result.filled_price)
+                elif result.side.value == "sell":
+                    pos = position_store.get(ticker_upper)
+                    if pos and pos.quantity <= result.quantity:
+                        position_store.remove(ticker_upper)
+                    elif pos:
+                        pos.quantity -= result.quantity
+                        position_store._save()
+
+            resp = {
                 "ticker": req.ticker, "action": req.action, "quantity": req.quantity,
                 "status": result.status.value,
                 "order_id": result.order_id,
@@ -205,6 +261,10 @@ def create_router(service: Any = None, graph: Any = None, runtime: Any = None, b
                             + (f" @ ${result.filled_price:.2f}" if result.filled_price else "")
                             + (f" (错误: {result.error})" if result.error else ""),
             }
+            if swing_trade:
+                resp["swing_trade_id"] = swing_trade.trade_id
+            return resp
+
         except Exception as e:
             logger.error("Trade execution failed: %s", e)
             return {
@@ -342,19 +402,51 @@ def create_router(service: Any = None, graph: Any = None, runtime: Any = None, b
 
         return {"execution_mode": mode, "message": f"已切换到 {mode} 模式"}
 
+    # ----- Auto-Pilot -----
+
+    @router.get("/auto-pilot")
+    async def get_auto_pilot_status():
+        """Get auto-pilot status."""
+        from stocker.engine.runtime_state import get_auto_pilot, get_auto_pilot_interval
+        return {
+            "enabled": get_auto_pilot(),
+            "interval_minutes": get_auto_pilot_interval(),
+        }
+
+    @router.post("/auto-pilot")
+    async def set_auto_pilot(body: dict):
+        """Toggle auto-pilot on/off. Optional: set interval_minutes."""
+        from stocker.engine.runtime_state import (
+            get_auto_pilot, set_auto_pilot as _set_ap,
+            set_auto_pilot_interval,
+        )
+        if "enabled" in body:
+            enabled = bool(body["enabled"])
+            _set_ap(enabled)
+            logger.info("[AutoPilot] %s via API", "ENABLED" if enabled else "DISABLED")
+
+        if "interval_minutes" in body:
+            minutes = int(body["interval_minutes"])
+            set_auto_pilot_interval(minutes)
+
+        return {
+            "enabled": get_auto_pilot(),
+            "message": f"AutoPilot {'已开启' if get_auto_pilot() else '已关闭'}",
+        }
+
     # ----- Portfolio -----
 
     @router.post("/portfolio")
     async def manage_portfolio(req: PortfolioRequest):
-        from stocker.portfolio.store import create_position_store
-        store = create_position_store()
+        if not position_store:
+            return {"error": "Position store not initialized"}
         if req.action == "list":
-            return {"positions": [p.model_dump(mode="json") for p in store.list_all()]}
+            return {"positions": [p.model_dump(mode="json") for p in position_store.list_all()]}
         elif req.action == "add":
-            pos = store.add(req.ticker, req.quantity, req.avg_cost)
+            pos = position_store.add(req.ticker, req.quantity, req.avg_cost)
             return {"added": pos.model_dump(mode="json")}
         elif req.action == "remove":
-            ok = store.remove(req.ticker)
+            ok = position_store.remove(req.ticker)
             return {"removed": req.ticker, "success": ok}
         return {"action": req.action, "message": "Wire to Supervisor."}
 
@@ -596,6 +688,344 @@ def create_router(service: Any = None, graph: Any = None, runtime: Any = None, b
         runtime = BacktestRuntime(config)
         report = await loop.run_in_executor(None, runtime.run)
         return report.model_dump(mode="json")
+
+    # ------------------------------------------------------------------
+    # Real-time quote (via westock-data)
+    # ------------------------------------------------------------------
+
+    def _ticker_to_westock_code(ticker: str) -> str:
+        """Convert a generic ticker to westock-data code format.
+
+        Examples: AAPL → usAAPL, 0700.HK → hk00700, 600519.SS → sh600519
+        """
+        t = ticker.strip().upper()
+
+        # Already in westock format
+        if t.startswith(("SH", "SZ", "BJ", "HK", "US")):
+            return t.lower() if t[:2] in ("SH", "SZ", "BJ") else t[:2].lower() + t[2:]
+
+        # Yahoo Finance HK format: 0700.HK → hk00700
+        if t.endswith(".HK"):
+            num = t.replace(".HK", "").zfill(5)
+            return f"hk{num}"
+
+        # Yahoo Finance CN format: 600519.SS → sh600519, 000001.SZ → sz000001
+        if t.endswith(".SS"):
+            return f"sh{t.replace('.SS', '')}"
+        if t.endswith(".SZ"):
+            return f"sz{t.replace('.SZ', '')}"
+
+        # Pure digits → guess CN market
+        if t.isdigit():
+            if t.startswith("6") or t.startswith("9"):
+                return f"sh{t}"
+            return f"sz{t}"
+
+        # Default: treat as US stock
+        return f"us{t}"
+
+    def _get_realtime_price(ticker: str) -> dict:
+        """Get real-time price via westock-data CLI.
+
+        westock-data quote returns either JSON or pipe-separated table text.
+        We handle both formats.
+        """
+        from stocker.skills.westock_data import _run_westock
+
+        code = _ticker_to_westock_code(ticker)
+        raw = _run_westock(["quote", code], timeout=15)
+
+        if not raw:
+            return {"ticker": ticker, "code": code, "price": 0, "error": "no data"}
+
+        # --- Try JSON first ---
+        try:
+            data = json.loads(raw)
+            if "data" in data and isinstance(data["data"], list) and data["data"]:
+                item = data["data"][0]
+            elif "data" in data and isinstance(data["data"], dict):
+                item = data["data"]
+            else:
+                item = data
+
+            price = float(item.get("last", 0) or item.get("price", 0) or item.get("close", 0) or 0)
+            change_pct = float(item.get("changePercent", 0) or item.get("changePct", 0) or item.get("change_percent", 0) or 0)
+            name = item.get("name", "") or item.get("stockName", "")
+
+            if price > 0:
+                return {
+                    "ticker": ticker, "code": code, "price": price,
+                    "change_pct": change_pct, "name": name,
+                }
+        except (json.JSONDecodeError, TypeError):
+            pass  # Not JSON, try table format
+
+        # --- Parse pipe-separated table (| col1 | col2 | ...) ---
+        try:
+            lines = [l.strip() for l in raw.strip().split("\n") if l.strip() and "|" in l]
+            if len(lines) >= 2:
+                # First line with content = headers, skip separator lines (|---|---|)
+                header_line = None
+                data_line = None
+                for l in lines:
+                    # Skip separator lines
+                    if all(c in "-| " for c in l):
+                        continue
+                    if header_line is None:
+                        header_line = l
+                    else:
+                        data_line = l
+                        break
+
+                if header_line and data_line:
+                    headers = [h.strip().lower() for h in header_line.split("|") if h.strip()]
+                    values = [v.strip() for v in data_line.split("|") if v.strip()]
+
+                    row = dict(zip(headers, values))
+
+                    # Try various column names for price
+                    price = 0.0
+                    for key in ("price", "last", "close", "prev_close"):
+                        val = row.get(key, "")
+                        try:
+                            p = float(val)
+                            if p > 0:
+                                price = p
+                                break
+                        except (ValueError, TypeError):
+                            continue
+
+                    change_pct = 0.0
+                    for key in ("change_percent", "changepercent", "change_pct"):
+                        val = row.get(key, "").replace("%", "")
+                        try:
+                            change_pct = float(val)
+                            break
+                        except (ValueError, TypeError):
+                            continue
+
+                    name = row.get("name", "") or row.get("symbol", "")
+
+                    return {
+                        "ticker": ticker, "code": code, "price": price,
+                        "change_pct": change_pct, "name": name,
+                    }
+        except Exception as e:
+            logger.debug("Table parse failed for %s: %s", ticker, e)
+
+        logger.warning("Could not parse westock quote for %s (raw=%s)", ticker, raw[:300])
+        return {"ticker": ticker, "code": code, "price": 0, "error": "parse failed", "raw_preview": raw[:300]}
+
+    @router.get("/quote/{ticker}")
+    async def get_quote(ticker: str):
+        """Get real-time stock quote via westock-data."""
+        import asyncio
+        result = await asyncio.to_thread(_get_realtime_price, ticker)
+        return result
+
+    @router.post("/quotes")
+    async def get_batch_quotes(body: dict):
+        """Get real-time quotes for multiple tickers at once.
+        body: {"tickers": ["AAPL", "TSLA", "0700.HK"]}"""
+        import asyncio
+        tickers = body.get("tickers", [])
+        if not tickers:
+            return {"quotes": {}}
+
+        # Batch via westock: convert all tickers to codes, join with comma
+        from stocker.skills.westock_data import _run_westock
+        codes = []
+        ticker_code_map = {}
+        for t in tickers[:30]:  # limit batch
+            code = _ticker_to_westock_code(t)
+            codes.append(code)
+            ticker_code_map[code] = t
+
+        def _fetch_batch():
+            raw = _run_westock(["quote", ",".join(codes)], timeout=20)
+            return raw
+
+        raw = await asyncio.to_thread(_fetch_batch)
+        quotes = {}
+
+        if not raw:
+            return {"quotes": quotes}
+
+        # Try JSON (BatchResult)
+        try:
+            data = json.loads(raw)
+            items = data.get("data", []) if isinstance(data.get("data"), list) else [data]
+            for item in items:
+                code = item.get("code", "") or item.get("symbol", "")
+                price = float(item.get("last", 0) or item.get("price", 0) or item.get("close", 0) or 0)
+                change_pct = float(item.get("changePercent", 0) or item.get("changePct", 0) or 0)
+                name = item.get("name", "")
+                # Find original ticker
+                orig = ticker_code_map.get(code, code)
+                if price > 0:
+                    quotes[orig] = {"price": price, "change_pct": change_pct, "name": name}
+            if quotes:
+                return {"quotes": quotes}
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        # Try table format: parse all data rows
+        try:
+            lines = [l.strip() for l in raw.strip().split("\n") if l.strip() and "|" in l]
+            headers = None
+            for l in lines:
+                if all(c in "-| " for c in l):
+                    continue
+                cells = [c.strip() for c in l.split("|") if c.strip()]
+                if headers is None:
+                    headers = [h.lower() for h in cells]
+                    continue
+                row = dict(zip(headers, cells))
+                code = row.get("code", "") or row.get("symbol", "")
+                price = 0.0
+                for key in ("price", "last", "close", "prev_close"):
+                    try:
+                        p = float(row.get(key, ""))
+                        if p > 0:
+                            price = p
+                            break
+                    except (ValueError, TypeError):
+                        continue
+                change_pct = 0.0
+                for key in ("change_percent", "changepercent"):
+                    try:
+                        change_pct = float(row.get(key, "").replace("%", ""))
+                        break
+                    except (ValueError, TypeError):
+                        continue
+                name = row.get("name", "")
+                # Match back to original ticker
+                for c, t in ticker_code_map.items():
+                    if c.lower() in code.lower() or code.lower() in c.lower():
+                        if price > 0:
+                            quotes[t] = {"price": price, "change_pct": change_pct, "name": name}
+                        break
+        except Exception as e:
+            logger.debug("Batch quote table parse failed: %s", e)
+
+        return {"quotes": quotes}
+
+    # ------------------------------------------------------------------
+    # Watchlist endpoints
+    # ------------------------------------------------------------------
+
+    @router.get("/watchlist")
+    async def list_watchlist():
+        if not watchlist_store:
+            return {"items": []}
+        items = watchlist_store.list_all()
+        return {"items": [wi.model_dump(mode="json") for wi in items]}
+
+    @router.post("/watchlist")
+    async def add_to_watchlist(body: dict):
+        if not watchlist_store:
+            return {"error": "Watchlist store not initialized"}
+        ticker = body.get("ticker", "").strip()
+        if not ticker:
+            return {"error": "ticker is required"}
+        wi = watchlist_store.add(
+            ticker=ticker,
+            name=body.get("name", ""),
+            market=body.get("market", ""),
+            tags=body.get("tags"),
+        )
+        return {"item": wi.model_dump(mode="json")}
+
+    @router.delete("/watchlist/{ticker}")
+    async def remove_from_watchlist(ticker: str):
+        if not watchlist_store:
+            return {"error": "Watchlist store not initialized"}
+        ok = watchlist_store.remove(ticker)
+        return {"removed": ticker, "success": ok}
+
+    @router.post("/watchlist/scan")
+    async def scan_watchlist(body: dict):
+        """Scan all watchlist items for swing signals."""
+        if not watchlist_store:
+            return {"results": []}
+        min_strength = body.get("min_strength", 20)
+        results = []
+        try:
+            from stocker.analysis.swing_signals import SwingSignalEngine
+            from stocker.utils.data_helpers import fetch_ohlcv_yfinance
+            engine = SwingSignalEngine()
+            for wi in watchlist_store.list_all():
+                try:
+                    df = fetch_ohlcv_yfinance(wi.ticker)
+                    if df is None or df.empty:
+                        continue
+                    signal = engine.analyze(wi.ticker, df)
+                    if signal and signal.strength >= min_strength:
+                        sig_dict = signal.model_dump(mode="json")
+                        sig_dict["ticker"] = wi.ticker
+                        results.append(sig_dict)
+                        # Update store
+                        watchlist_store.update_signal(wi.ticker, signal)
+                except Exception as e:
+                    logger.warning("Scan failed for %s: %s", wi.ticker, e)
+        except Exception as e:
+            logger.error("Watchlist scan failed: %s", e)
+        return {"results": results}
+
+    # ------------------------------------------------------------------
+    # Swing Trades endpoints
+    # ------------------------------------------------------------------
+
+    @router.get("/swing-trades")
+    async def list_swing_trades(status: str = ""):
+        if not swing_store:
+            return {"trades": []}
+        trades = swing_store.list_all(status=status if status else None)
+        return {"trades": [t.model_dump(mode="json") for t in trades]}
+
+    @router.get("/swing-trades/stats")
+    async def get_swing_stats():
+        if not swing_store:
+            return {"stats": {}}
+        stats = swing_store.get_stats()
+        return {"stats": stats.model_dump(mode="json")}
+
+    @router.post("/swing-trades/open")
+    async def open_swing_trade(body: dict):
+        if not swing_store:
+            return {"error": "Swing store not initialized"}
+        ticker = body.get("ticker", "").strip().upper()
+        if not ticker:
+            return {"error": "ticker is required"}
+        entry_price = body.get("entry_price", 0)
+        if not entry_price or entry_price <= 0:
+            return {"error": "valid entry_price is required"}
+        trade = swing_store.open_trade(
+            ticker=ticker,
+            entry_price=entry_price,
+            quantity=body.get("quantity", 0),
+            notes=body.get("notes", ""),
+        )
+        return {"trade": trade.model_dump(mode="json")}
+
+    @router.post("/swing-trades/close")
+    async def close_swing_trade(body: dict):
+        if not swing_store:
+            return {"error": "Swing store not initialized"}
+        trade_id = body.get("trade_id", "")
+        exit_price = body.get("exit_price", 0)
+        if not trade_id:
+            return {"error": "trade_id is required"}
+        if not exit_price or exit_price <= 0:
+            return {"error": "valid exit_price is required"}
+        trade = swing_store.close_trade(
+            trade_id=trade_id,
+            exit_price=exit_price,
+            notes=body.get("notes", ""),
+        )
+        if not trade:
+            return {"error": f"Trade {trade_id} not found"}
+        return {"trade": trade.model_dump(mode="json")}
 
     return router
 

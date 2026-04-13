@@ -222,3 +222,27 @@ class RiskAssessmentResult(BaseModel):
     key_reasons: list[str] = Field(default_factory=list)
     investment_thesis: str = ""
     debate_summary: str = ""  # summary of bull/bear debate
+
+
+# ---------------------------------------------------------------------------
+# Swing signal models (used by SwingSignalEngine + WatchlistItem)
+# ---------------------------------------------------------------------------
+
+class SwingSignalType(str, Enum):
+    ENTRY_LONG = "entry_long"
+    EXIT_LONG = "exit_long"
+    NEUTRAL = "neutral"
+
+
+class SwingSignal(BaseModel):
+    """Composite swing trading signal with strength score."""
+    ticker: str = ""
+    signal_type: SwingSignalType = SwingSignalType.NEUTRAL
+    strength: float = 0.0  # 0-100
+    suggested_price: float = 0.0
+    stop_loss: float | None = None
+    take_profit: float | None = None
+    reasons: list[str] = Field(default_factory=list)
+    indicators: dict = Field(default_factory=dict)
+    market_environment: str = ""
+    timestamp: datetime = Field(default_factory=datetime.now)

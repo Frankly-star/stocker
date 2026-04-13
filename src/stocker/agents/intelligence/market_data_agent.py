@@ -24,23 +24,31 @@ def _convert_to_westock_code(ticker: str) -> str:
     """Convert standard ticker format to westock-data code format.
 
     Examples: 0700.HK → hk00700, AAPL → usAAPL, 600519.SS → sh600519
+    Also handles already-westock inputs: SZ300750 → sz300750
     """
-    t = ticker.upper().strip()
-    if t.endswith(".HK"):
-        num = t.replace(".HK", "").zfill(5)
-        return f"hk{num}"
-    elif t.endswith(".SS") or t.endswith(".SH"):
-        num = t.split(".")[0]
-        return f"sh{num}"
-    elif t.endswith(".SZ"):
-        num = t.split(".")[0]
-        return f"sz{num}"
-    elif t.endswith(".T"):
+    t = ticker.strip()
+    tu = t.upper()
+
+    # Already in westock format
+    for prefix in ("SH", "SZ", "BJ", "HK", "US"):
+        if tu.startswith(prefix) and len(tu) > 2:
+            if prefix == "US":
+                return f"us{tu[2:]}"
+            return f"{prefix.lower()}{tu[2:]}"
+
+    if tu.endswith(".HK"):
+        return f"hk{tu.replace('.HK', '').zfill(5)}"
+    elif tu.endswith(".SS") or tu.endswith(".SH"):
+        return f"sh{tu.split('.')[0]}"
+    elif tu.endswith(".SZ"):
+        return f"sz{tu.split('.')[0]}"
+    elif tu.endswith(".T"):
         return t
-    elif t.isalpha():
-        return f"us{t}"
-    else:
-        return t
+    elif tu.isalpha():
+        return f"us{tu}"
+    elif tu.isdigit():
+        return f"sh{tu}" if tu.startswith("6") or tu.startswith("9") else f"sz{tu}"
+    return t.lower()
 
 
 def _fetch_westock_kline_as_df(ticker: str, count: int = 250):

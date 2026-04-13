@@ -931,6 +931,62 @@ tr:hover td { background: var(--bg-hover); }
   font-size: 1.3rem;
 }
 
+/* ============================================================
+   Tab Component (for merged pages)
+   ============================================================ */
+.tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+.tab-bar-tabs {
+  display: flex;
+  gap: 0;
+  flex: 1;
+}
+.tab-btn {
+  padding: 10px 20px;
+  font-size: .85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+  bottom: -1px;
+}
+.tab-btn:hover {
+  color: var(--text-sec);
+}
+.tab-btn.active {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.tab-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+.tab-pane {
+  display: none;
+}
+.tab-pane.active {
+  display: block;
+  animation: fadeIn .15s ease;
+}
+
+/* Merged page: dimmed cells for watching-only rows */
+.cell-dim {
+  color: var(--text-muted);
+  font-size: .8rem;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   :root { --sidebar-w: 0px; }

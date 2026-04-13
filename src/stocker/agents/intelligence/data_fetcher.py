@@ -31,17 +31,32 @@ _FN_SCRIPTS = _FN_SKILL_DIR / "scripts"
 
 
 def _convert_to_westock_code(ticker: str) -> str:
-    """Convert standard ticker to westock code: AAPL->usAAPL, 0700.HK->hk00700."""
-    t = ticker.upper().strip()
-    if t.endswith(".HK"):
-        return f"hk{t.replace('.HK', '').zfill(5)}"
-    elif t.endswith(".SS") or t.endswith(".SH"):
-        return f"sh{t.split('.')[0]}"
-    elif t.endswith(".SZ"):
-        return f"sz{t.split('.')[0]}"
-    elif t.isalpha():
-        return f"us{t}"
-    return t
+    """Convert standard ticker to westock code: AAPL->usAAPL, 0700.HK->hk00700.
+
+    Also handles inputs that are already in westock format (SZ300750 -> sz300750).
+    """
+    t = ticker.strip()
+    tu = t.upper()
+
+    # Already in westock format (sh/sz/bj/hk/us prefix + code)
+    for prefix in ("SH", "SZ", "BJ", "HK", "US"):
+        if tu.startswith(prefix) and len(tu) > 2:
+            # Keep prefix lowercase, preserve original case for US tickers
+            if prefix == "US":
+                return f"us{tu[2:]}"
+            return f"{prefix.lower()}{tu[2:]}"
+
+    if tu.endswith(".HK"):
+        return f"hk{tu.replace('.HK', '').zfill(5)}"
+    elif tu.endswith(".SS") or tu.endswith(".SH"):
+        return f"sh{tu.split('.')[0]}"
+    elif tu.endswith(".SZ"):
+        return f"sz{tu.split('.')[0]}"
+    elif tu.isalpha():
+        return f"us{tu}"
+    elif tu.isdigit():
+        return f"sh{tu}" if tu.startswith("6") or tu.startswith("9") else f"sz{tu}"
+    return t.lower()
 
 
 def _try_call(func, *args, label="", **kwargs) -> str:

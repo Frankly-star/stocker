@@ -63,11 +63,11 @@ def _setup_logging() -> None:
 # Build subgraphs + Supervisor
 # ---------------------------------------------------------------------------
 
-def _build_supervisor_graph(service: Any = None) -> tuple[Any | None, Any | None, Any | None]:
+def _build_supervisor_graph(service: Any = None) -> tuple:
     """Build the full Supervisor MainGraph with Intelligence + Risk + Execution subgraphs.
 
     Returns:
-        (graph, runtime, broker) — runtime/broker may be None if not futu.
+        (graph, runtime, broker, watchlist_store, swing_store, position_store)
     """
     runtime = None
     broker = None
@@ -83,6 +83,17 @@ def _build_supervisor_graph(service: Any = None) -> tuple[Any | None, Any | None
 
         from stocker.portfolio.store import create_position_store
         store = create_position_store(config.get("broker_type", "futu"))
+
+        # --- Build Watchlist & Swing stores ---
+        watchlist_store = None
+        swing_store = None
+        try:
+            from stocker.watchlist.store import create_watchlist_store
+            from stocker.swing.store import create_swing_store
+            watchlist_store = create_watchlist_store(config.get("broker_type", "futu"))
+            swing_store = create_swing_store(config.get("broker_type", "futu"))
+        except Exception as e:
+            logger.warning("Failed to create watchlist/swing stores: %s", e)
 
         # --- Build Futu Runtime (only when broker_type is futu) ---
         broker_type = config.get("broker_type", "futu").lower()
@@ -161,6 +172,7 @@ def _build_supervisor_graph(service: Any = None) -> tuple[Any | None, Any | None
             risk_graph=risk_graph,
             execution_graph=execution_graph,
             portfolio_store=store,
+            watchlist_store=watchlist_store,
             service=service,
         )
         graph = build_main_graph(llm, tools)
@@ -174,11 +186,11 @@ def _build_supervisor_graph(service: Any = None) -> tuple[Any | None, Any | None
             wired.append("Execution")
         logger.info("Supervisor MainGraph initialized — wired teams: %s",
                      ", ".join(wired) if wired else "none (LLM-only)")
-        return graph, runtime, broker
+        return graph, runtime, broker, watchlist_store, swing_store, store
 
     except Exception as e:
         logger.error("Failed to initialize Supervisor MainGraph: %s", e, exc_info=True)
-        return None, runtime, broker
+        return None, runtime, broker, None, None, None
 
 
 # ---------------------------------------------------------------------------
@@ -205,14 +217,22 @@ def create_app(service: Any = None) -> FastAPI:
     )
 
     # Build Supervisor graph (LLM + subgraphs + execution)
-    graph, runtime, broker = _build_supervisor_graph(service=service)
+    graph, runtime, broker, watchlist_store, swing_store, position_store = _build_supervisor_graph(service=service)
 
     # Store runtime/broker on app.state for routes to access
     app.state.futu_runtime = runtime
     app.state.broker = broker
 
+    # Trade store
+    from stocker.broker.trade_store import TradeStore
+    trade_store = TradeStore()
+
     # API routes
-    router = create_router(service=service, graph=graph, runtime=runtime, broker=broker)
+    router = create_router(
+        service=service, graph=graph, runtime=runtime, broker=broker,
+        watchlist_store=watchlist_store, swing_store=swing_store, trade_store=trade_store,
+        position_store=position_store,
+    )
     app.include_router(router, prefix="/api/v1")
 
     # Static files
@@ -236,6 +256,102 @@ def create_app(service: Any = None) -> FastAPI:
                     logger.info("Startup broker sync: no positions returned from broker")
             except Exception as e:
                 logger.warning("Startup broker sync failed: %s", e)
+
+    # --- Auto-Pilot background task ---
+    _auto_pilot_task = None
+
+    async def _auto_pilot_loop():
+        """Background loop: when auto_pilot is ON, periodically invoke Supervisor
+        with an autonomous research prompt to discover stocks, scan signals, and trade."""
+        import asyncio
+        from stocker.engine.runtime_state import get_auto_pilot, get_auto_pilot_interval
+
+        logger.info("[AutoPilot] Background loop started")
+        _was_on = False  # track state changes to run immediately on enable
+
+        while True:
+            try:
+                is_on = get_auto_pilot()
+
+                if not is_on:
+                    _was_on = False
+                    await asyncio.sleep(10)  # check every 10s when OFF
+                    continue
+
+                # Just turned ON → run immediately; otherwise wait interval
+                if _was_on:
+                    interval = get_auto_pilot_interval()
+                    logger.info("[AutoPilot] Next cycle in %d minutes", interval)
+                    await asyncio.sleep(interval * 60)
+                    # Re-check in case it was turned off during wait
+                    if not get_auto_pilot():
+                        _was_on = False
+                        continue
+                else:
+                    logger.info("[AutoPilot] Just enabled — running first cycle immediately")
+
+                _was_on = True
+
+                if not graph:
+                    logger.warning("[AutoPilot] Supervisor graph not available, skipping cycle")
+                    continue
+
+                logger.info("[AutoPilot] Starting autonomous research cycle...")
+
+                # Invoke Supervisor with autonomous research prompt
+                from langchain_core.messages import HumanMessage
+                prompt = (
+                    "scheduled: 自主投研周期任务。请按以下步骤执行完整投研流程：\n"
+                    "1. 调用 discover_market_opportunities 获取当前热门板块、热搜股票、资金流向等真实市场数据\n"
+                    "2. 从市场数据中筛选出最有潜力的 2 个候选标的（资金流入大、板块领涨、热度高的优先）\n"
+                    "3. **重要：逐个串行分析**，不要同时分析多只股票（LLM 并发有限制）：\n"
+                    "   - 先对第 1 个候选调用 run_intelligence，等结果返回后再调用 run_risk_assessment\n"
+                    "   - 然后对第 2 个候选重复同样流程\n"
+                    "4. 将风险评估为 BUY/OVERWEIGHT 的标的加入观察列表（manage_watchlist add），注意 ticker 要用标准格式如 600519.SS 或 0700.HK\n"
+                    "5. 对整个股票池运行 scan_watchlist_signals 扫描波段信号\n"
+                    "6. 如果当前为 ACTIVE 模式：对有入场信号(strength>=60)且评级为BUY的股票执行建仓(run_execution buy)；对持仓中有出场信号的执行平仓(run_execution sell)\n"
+                    "7. 简要汇报本轮操作：发现了什么机会、分析了哪些股票、做了什么交易决策"
+                )
+                try:
+                    result = await asyncio.to_thread(
+                        graph.invoke,
+                        {"messages": [HumanMessage(content=prompt)]}
+                    )
+                    # Extract response for logging
+                    from langchain_core.messages import AIMessage
+                    messages = result.get("messages", [])
+                    for msg in reversed(messages):
+                        if isinstance(msg, AIMessage) and msg.content:
+                            logger.info("[AutoPilot] Cycle complete. Response: %s",
+                                        msg.content[:500])
+                            break
+                except Exception as e:
+                    logger.error("[AutoPilot] Supervisor invocation failed: %s", e)
+
+            except asyncio.CancelledError:
+                logger.info("[AutoPilot] Background loop cancelled")
+                break
+            except Exception as e:
+                logger.error("[AutoPilot] Unexpected error: %s", e)
+                await asyncio.sleep(60)  # back off on error
+
+    @app.on_event("startup")
+    async def startup_auto_pilot():
+        """Start the auto-pilot background loop."""
+        import asyncio
+        from stocker.engine.runtime_state import set_auto_pilot
+        from stocker.config import load_config as _load_cfg2
+        _cfg2 = _load_cfg2()
+        # Initialize from .env
+        auto_enabled = _cfg2.get("auto_trading_enabled", "false").lower() == "true"
+        set_auto_pilot(auto_enabled)
+
+        nonlocal _auto_pilot_task
+        _auto_pilot_task = asyncio.create_task(_auto_pilot_loop())
+        logger.info("[AutoPilot] Initialized (enabled=%s)", auto_enabled)
+
+    # Store task reference on app for route access
+    app.state.auto_pilot_task = None
 
     # Health check
     @app.get("/health")

@@ -60,6 +60,10 @@ const API = (() => {
     // Execution Mode
     setExecutionMode: (mode)         => request('POST', '/execution-mode', { mode }),
 
+    // Auto-Pilot
+    getAutoPilot:      ()            => request('GET',  '/auto-pilot'),
+    setAutoPilot:      (enabled)     => request('POST', '/auto-pilot', { enabled }),
+
     // Skills
     listSkills:  ()                  => request('GET',  '/skills'),
 

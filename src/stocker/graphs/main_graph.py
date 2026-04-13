@@ -148,6 +148,10 @@ def _tool_display_name(tool_name: str, args: dict) -> str:
         "get_system_status": "系统状态查询",
         "manage_portfolio": "持仓管理",
         "get_cached_analysis": "读取缓存分析",
+        "manage_watchlist": "股票池管理",
+        "scan_watchlist_signals": "信号扫描",
+        "get_realtime_quote": "实时报价",
+        "discover_market_opportunities": "市场机会发现",
     }
     base = labels.get(tool_name, tool_name)
     ticker = args.get("ticker", "")
