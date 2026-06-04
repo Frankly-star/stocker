@@ -217,23 +217,62 @@ def create_analysis_node(
             data_context = "WARNING: No data available for this analysis. Provide best assessment based on general knowledge."
 
         sources = shared.get("sources_used", [])
+        warnings = shared.get("data_warnings", [])
         sources_text = ", ".join(sources) if sources else "none"
+        warnings_text = "\n".join(f"- {w}" for w in warnings) if warnings else "none"
 
         user_message = (
             f"Analyze {ticker}. Current date: {trade_date}.\n"
-            f"Data sources used: {sources_text}\n\n"
+            f"Data sources used: {sources_text}\n"
+            f"Data warnings: {warnings_text}\n\n"
             f"--- BEGIN DATA ---\n{data_context}\n--- END DATA ---\n\n"
             f"Based on the data above, provide your comprehensive analysis. "
-            f"Use ONLY the data provided. Do NOT make up numbers."
+            f"Use ONLY the data provided. Do NOT make up numbers. "
+            f"If fixed-source data is missing, state that clearly instead of inventing values."
         )
 
+        node_name = {
+            "market_report": "market_data",
+            "news_report": "news",
+            "fundamentals_report": "fundamentals",
+            "social_report": "social",
+        }.get(report_field, report_field)
+
+        try:
+            from stocker.evolution.adapters.langgraph_prompt_resolver import resolve_prompt
+            resolved_prompt = resolve_prompt(
+                team="intelligence",
+                node=node_name,
+                base_prompt=system_prompt,
+                state=state,
+            )
+        except Exception:
+            resolved_prompt = None
+
         messages = [
-            SystemMessage(content=system_prompt),
+            SystemMessage(content=resolved_prompt.prompt if resolved_prompt else system_prompt),
             HumanMessage(content=user_message),
         ]
 
+        import time
+        t0 = time.time()
         response = llm.invoke(messages)
+        duration_ms = int((time.time() - t0) * 1000)
         final_content = response.content if hasattr(response, "content") else ""
+
+        try:
+            from stocker.evolution.adapters.trace_store import record_node_trace
+            record_node_trace(
+                team="intelligence",
+                node=node_name,
+                state=state,
+                input_text=user_message,
+                output_text=final_content,
+                resolved_prompt=resolved_prompt,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            pass
 
         logger.info("[%s] Analysis produced %d chars", report_field, len(final_content))
 

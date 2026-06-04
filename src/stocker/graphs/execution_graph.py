@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def _resolve_current_price(ticker: str) -> float | None:
     """Resolve current market price for a ticker.
 
-    Priority: FutuRuntime snapshot → yfinance → None.
+    Priority: FutuRuntime snapshot → westock-data quote → None.
     Used to convert market orders to limit orders for HK simulate.
     """
     # 1. Try FutuRuntime (fastest, already connected)
@@ -40,17 +40,49 @@ def _resolve_current_price(ticker: str) -> float | None:
     except Exception as e:
         logger.debug("Futu price resolve failed for %s: %s", ticker, e)
 
-    # 2. Try yfinance
+    # 2. Try westock-data fixed quote route
     try:
-        import yfinance as yf
-        obj = yf.Ticker(ticker.upper())
-        info = obj.info
-        price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
-        if price and float(price) > 0:
-            logger.info("Resolved price for %s via yfinance: %.2f", ticker, float(price))
-            return float(price)
+        import json
+        from stocker.agents.intelligence.data_fetcher import _convert_to_westock_code
+        from stocker.skills.westock_data import _run_westock
+
+        code = _convert_to_westock_code(ticker)
+        raw = _run_westock(["quote", code], timeout=15)
+        if raw and "error" not in raw.lower()[:120] and "timeout" not in raw.lower()[:120]:
+            try:
+                data = json.loads(raw)
+                item = data.get("data", data) if isinstance(data, dict) else data
+                if isinstance(item, list) and item:
+                    item = item[0]
+                if isinstance(item, dict):
+                    price = item.get("last") or item.get("price") or item.get("close")
+                    if price and float(price) > 0:
+                        logger.info("Resolved price for %s via westock-data: %.2f", ticker, float(price))
+                        return float(price)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+            lines = [line.strip() for line in raw.splitlines() if line.strip() and "|" in line]
+            headers = None
+            for line in lines:
+                if all(ch in "-| " for ch in line):
+                    continue
+                cells = [cell.strip() for cell in line.split("|") if cell.strip()]
+                if headers is None:
+                    headers = [cell.lower() for cell in cells]
+                    continue
+                row = dict(zip(headers, cells))
+                for key in ("price", "last", "close", "prev_close"):
+                    try:
+                        price = float(row.get(key, ""))
+                        if price > 0:
+                            logger.info("Resolved price for %s via westock-data: %.2f", ticker, price)
+                            return price
+                    except (ValueError, TypeError):
+                        continue
     except Exception as e:
-        logger.debug("yfinance price resolve failed for %s: %s", ticker, e)
+        logger.debug("westock-data price resolve failed for %s: %s", ticker, e)
+
 
     return None
 

@@ -1,10 +1,9 @@
-"""Dynamic data routing layer. Extracted from TradingAgents interface.py and redesigned.
+"""Legacy dynamic data routing layer.
 
-Key changes from TradingAgents:
-- No dependency on tradingagents.* imports
-- Dynamic provider registration (supports Skills as data sources)
-- Simplified fallback chain
-- Standalone config (no global mutable state)
+This module is no longer part of the main Intelligence data route. Stock analysis
+uses `agents/intelligence/data_fetcher.py` with fixed sources only:
+westock-data for market data and finance-news RSS for news. Keep this module for
+older/backtest integrations only; do not wire it into the main analysis graph.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class DataRouter:
-    """Routes data requests to appropriate provider implementations with fallback."""
+    """Legacy provider router; not used by the main Intelligence graph."""
 
     def __init__(self, default_provider: str = "yfinance") -> None:
         self.default_provider = default_provider
@@ -51,15 +50,16 @@ class DataRouter:
     # ------------------------------------------------------------------
 
     def route(self, method: str, *args: Any, **kwargs: Any) -> Any:
-        """Route a method call to the appropriate provider with fallback.
+        """Route a legacy method call.
 
-        Tries default_provider first, then falls back to others.
+        This legacy router may try registered providers in order, but it is not
+        wired into Stocker's fixed main data route.
         """
         if method not in self._methods:
             raise ValueError(f"Method '{method}' not registered in DataRouter")
 
         providers = self._methods[method]
-        # Build fallback chain: default first, then others
+        # Legacy provider order: default first, then other registered providers
         order = []
         if self.default_provider in providers:
             order.append(self.default_provider)

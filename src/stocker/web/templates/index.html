@@ -92,6 +92,14 @@
         </a>
       </li>
       <li>
+        <a href="#evolution" data-page="evolution">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v6"/><path d="M12 16v6"/><path d="M4.93 4.93l4.24 4.24"/><path d="M14.83 14.83l4.24 4.24"/><circle cx="12" cy="12" r="4"/>
+          </svg>
+          自我进化
+        </a>
+      </li>
+      <li>
         <a href="#settings" data-page="settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -99,6 +107,7 @@
           设置
         </a>
       </li>
+
     </ul>
   </div>
 
@@ -108,6 +117,7 @@
       <span class="status-dot offline" id="status-dot"></span>
       <span id="status-text">未连接</span>
     </div>
+    <div class="sidebar-status-detail" id="runtime-detail">等待状态同步</div>
   </div>
 </aside>
 
@@ -119,6 +129,7 @@
   <header class="topbar">
     <div class="topbar-title" id="topbar-title">对话</div>
     <div class="topbar-actions">
+      <div class="runtime-pill offline" id="runtime-status-pill">状态同步中</div>
       <div class="toggle-wrap">
         <span class="text-sm text-muted" id="execution-mode-label">OBSERVE</span>
         <label class="toggle">
@@ -456,6 +467,11 @@
             <span class="status-item-value" id="val-scheduler">-</span>
           </div>
           <div class="status-item">
+            <span class="status-dot" id="dot-monitoring"></span>
+            <span class="status-item-label">常驻监控</span>
+            <span class="status-item-value" id="val-monitoring">-</span>
+          </div>
+          <div class="status-item">
             <span class="status-dot" id="dot-broker"></span>
             <span class="status-item-label">Broker</span>
             <span class="status-item-value" id="val-broker">-</span>
@@ -644,8 +660,60 @@
     </div>
   </div>
 
+  <!-- ========== Page: Evolution ========== -->
+  <div id="page-evolution" class="page">
+    <div class="content">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <div style="font-size:.95rem;font-weight:600;">EvolutionSkill 自我进化</div>
+          <div style="font-size:.8rem;color:var(--text-muted);">查看团队策略 skill、节点轨迹、patch 草案和周复盘；高风险 patch 必须审批并绑定模拟盘/回测证据。</div>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-sm" id="btn-evolution-seed">初始化默认 Skill</button>
+          <button class="btn btn-sm" id="btn-evolution-review">生成周复盘</button>
+          <button class="btn btn-sm btn-primary" id="btn-evolution-refresh">刷新</button>
+        </div>
+      </div>
+
+      <div class="portfolio-summary">
+        <div class="summary-card"><div class="summary-card-label">Skills</div><div class="summary-card-value" id="evo-skill-count">0</div></div>
+        <div class="summary-card"><div class="summary-card-label">Pending Patches</div><div class="summary-card-value" id="evo-patch-count">0</div></div>
+        <div class="summary-card"><div class="summary-card-label">Traces</div><div class="summary-card-value" id="evo-trace-count">0</div></div>
+        <div class="summary-card"><div class="summary-card-label">状态</div><div class="summary-card-value" id="evo-status">-</div></div>
+      </div>
+
+      <div class="table-wrap" style="margin-top:16px;">
+        <div class="table-header"><span class="table-title">Evolution Skills</span></div>
+        <table>
+          <thead><tr><th>ID</th><th>团队/节点</th><th>状态</th><th>风险</th><th>版本</th><th>说明</th></tr></thead>
+          <tbody id="evolution-skills-tbody"><tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px;">加载中...</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="table-wrap" style="margin-top:16px;">
+        <div class="table-header"><span class="table-title">Patch Drafts</span></div>
+        <table>
+          <thead><tr><th>Patch</th><th>目标</th><th>状态</th><th>风险</th><th>原因</th><th>操作</th></tr></thead>
+          <tbody id="evolution-patches-tbody"><tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px;">加载中...</td></tr></tbody>
+        </table>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;align-items:start;">
+        <div class="settings-section">
+          <div class="settings-section-title">最近节点轨迹</div>
+          <div id="evolution-traces-list" style="font-size:.78rem;line-height:1.6;color:var(--text-sec);max-height:280px;overflow:auto;">加载中...</div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-section-title">周复盘建议</div>
+          <div id="evolution-review-box" style="font-size:.78rem;line-height:1.6;color:var(--text-sec);max-height:280px;overflow:auto;">点击“生成周复盘”查看建议。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ========== Page: Settings ========== -->
   <div id="page-settings" class="page">
+
     <div class="content">
       <!-- LLM Config -->
       <div class="settings-section">

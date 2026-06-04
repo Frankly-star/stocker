@@ -1,11 +1,11 @@
 """DataIntelligenceSubgraph: DataFetcher → 4 analysis agents → aggregation.
 
 Architecture:
-  1. DataFetcher node: calls all data sources ONCE, stores in shared_data
+  1. DataFetcher node: calls the fixed sources once and stores shared_data
   2. 4 Analyst nodes: read from shared_data, produce text reports (NO tool calls)
   3. Aggregate node: combine reports into MarketIntelligenceReport
 
-This eliminates duplicate API calls — data is fetched once, shared everywhere.
+This keeps analysis on one explicit data route and eliminates duplicate API calls.
 """
 
 from __future__ import annotations
@@ -31,8 +31,8 @@ def build_intelligence_graph(llm: Any, dataflow_tools: list = None, news_tools: 
 
     Args:
         llm: LangChain chat model
-        dataflow_tools: (legacy, ignored) — data fetching is now centralized in DataFetcher
-        news_tools: (legacy, ignored)
+        dataflow_tools: deprecated, ignored; fixed-source fetching is centralized in DataFetcher
+        news_tools: deprecated, ignored
 
     Returns:
         Compiled StateGraph
@@ -72,6 +72,7 @@ def build_intelligence_graph(llm: Any, dataflow_tools: list = None, news_tools: 
                 "social": state.get("social_report", ""),
             },
             data_sources_used=shared.get("sources_used", []),
+            data_warnings=shared.get("data_warnings", []),
         )
         quality = report.assess_data_quality()
         logger.info("Intelligence report for %s: data_quality=%s, warnings=%d, sources=%s",

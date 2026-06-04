@@ -82,3 +82,39 @@ class Reflector:
                 reflections[component] = f"Reflection error: {e}"
 
         return reflections
+
+    def reflect_and_propose_patches(
+        self,
+        situation_text: str,
+        decisions: dict[str, str],
+        returns: str,
+        memories: dict[str, BM25Memory],
+        skill_targets: dict[str, str],
+    ) -> dict[str, object]:
+        """Reflect as before, then create optional EvolutionSkill patch drafts.
+
+        ``skill_targets`` maps component names (for example ``trader``) to
+        target evolution skill ids. Patch drafts are persisted but never applied.
+        """
+        reflections = self.reflect_and_remember(situation_text, decisions, returns, memories)
+        patches = {}
+        try:
+            from stocker.evolution.adapters.stocker_reviewer import StockerEvolutionReviewer
+            reviewer = StockerEvolutionReviewer()
+            for component, reflection in reflections.items():
+                target = skill_targets.get(component)
+                if not target:
+                    continue
+                patch = reviewer.propose_patch_from_reflection(
+                    target_skill_id=target,
+                    reflection=str(reflection),
+                    reason=f"Post-run reflection for {component}",
+                    evidence_trace_ids=[],
+                    risk_level="high" if component in {"trader", "portfolio_manager"} else "medium",
+                )
+                if patch is not None:
+                    patches[component] = patch.model_dump(mode="json")
+        except Exception as e:
+            logger.error("Evolution patch proposal failed: %s", e)
+        return {"reflections": reflections, "patches": patches}
+

@@ -122,8 +122,7 @@ class MarketIntelligenceReport(BaseModel):
         """Assess data quality based on what reports actually contain real data."""
         reports = self.raw_reports
         has_real_data = 0
-        total = len(reports) if reports else 4
-        warnings = []
+        warnings = list(self.data_warnings)
 
         for name, text in reports.items():
             if text and len(text) > 50 and "error" not in text.lower()[:100] and "no data" not in text.lower()[:100] and "rate limit" not in text.lower()[:100]:
@@ -161,7 +160,7 @@ class MarketIntelligenceReport(BaseModel):
                 "",
                 "**Most data below is DEFAULT/PLACEHOLDER values, NOT real market data.**",
                 "**DO NOT make trading decisions based on these numbers.**",
-                "**The data sources (e.g. yfinance) were likely rate-limited or unavailable.**",
+                "**The fixed data sources were unavailable or returned incomplete data.**",
                 "",
                 "Data issues:",
                 *[f"  - {w}" for w in self.data_warnings],

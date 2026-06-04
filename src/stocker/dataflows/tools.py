@@ -1,4 +1,8 @@
-"""LangChain @tool definitions for the Data Intelligence Team agents."""
+"""Legacy DataRouter-backed LangChain tools.
+
+The main Intelligence graph no longer binds these tools. Fixed-source analysis
+must go through `agents/intelligence/data_fetcher.py` only.
+"""
 
 from __future__ import annotations
 

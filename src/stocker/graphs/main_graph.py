@@ -54,10 +54,20 @@ def build_main_graph(
             f"[SYSTEM STATUS] Current execution_mode = {current_mode}\n\n"
             + SUPERVISOR_SYSTEM_PROMPT
         )
+        try:
+            from stocker.evolution.adapters.langgraph_prompt_resolver import resolve_prompt
+            resolved_prompt = resolve_prompt(
+                team="supervisor",
+                node="supervisor",
+                base_prompt=dynamic_system_prompt,
+                state=state,
+            )
+        except Exception:
+            resolved_prompt = None
 
         # Always replace/inject system prompt with latest mode
         non_system = [m for m in messages if not isinstance(m, SystemMessage)]
-        messages = [SystemMessage(content=dynamic_system_prompt)] + non_system
+        messages = [SystemMessage(content=resolved_prompt.prompt if resolved_prompt else dynamic_system_prompt)] + non_system
 
         if on_event:
             on_event("supervisor", "thinking", "Supervisor 正在分析意图...")
@@ -76,8 +86,24 @@ def build_main_graph(
                 on_event("supervisor", "responding",
                          f"Supervisor 生成最终回复 ({elapsed:.1f}s)")
 
+        tool_call_names = [tc["name"] for tc in response.tool_calls] if response.tool_calls else []
+        try:
+            from stocker.evolution.adapters.trace_store import record_node_trace
+            record_node_trace(
+                team="supervisor",
+                node="supervisor",
+                state=state,
+                input_text="\n".join(str(m.content) for m in non_system[-3:] if hasattr(m, "content")),
+                output_text=", ".join(tool_call_names) if tool_call_names else getattr(response, "content", ""),
+                resolved_prompt=resolved_prompt,
+                duration_ms=int(elapsed * 1000),
+                metadata={"tool_calls": tool_call_names, "execution_mode": current_mode},
+            )
+        except Exception:
+            pass
+
         logger.info("Supervisor responded in %.1fs, tool_calls=%s",
-                     elapsed, [tc["name"] for tc in response.tool_calls] if response.tool_calls else "none")
+                    elapsed, tool_call_names or "none")
 
         return {"messages": [response]}
 

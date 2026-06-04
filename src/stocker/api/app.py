@@ -132,16 +132,10 @@ def _build_supervisor_graph(service: Any = None) -> tuple:
         # --- Build Intelligence subgraph ---
         intelligence_graph = None
         try:
-            from stocker.dataflows.router import create_default_router
-            from stocker.dataflows.tools import create_dataflow_tools
             from stocker.graphs.intelligence_graph import build_intelligence_graph
 
-            data_router = create_default_router()
-            dataflow_tools = create_dataflow_tools(data_router)
-            # News tools are the subset with get_news / get_global_news
-            news_tools = [t for t in dataflow_tools if "news" in t.name]
-            intelligence_graph = build_intelligence_graph(llm, dataflow_tools, news_tools)
-            logger.info("Intelligence subgraph built successfully")
+            intelligence_graph = build_intelligence_graph(llm)
+            logger.info("Intelligence subgraph built successfully with DataFetcher fixed-source route")
         except Exception as e:
             logger.warning("Failed to build Intelligence subgraph: %s", e)
 
@@ -223,15 +217,22 @@ def create_app(service: Any = None) -> FastAPI:
     app.state.futu_runtime = runtime
     app.state.broker = broker
 
-    # Trade store
-    from stocker.broker.trade_store import TradeStore
-    trade_store = TradeStore()
+    # Persistent stores
+    from stocker.alerts.store import create_alert_store
+    from stocker.broker.trade_store import create_trade_store
+    from stocker.config import load_config as _load_trade_cfg
+    from stocker.trade_plan.store import create_trade_plan_store
+    _trade_cfg = _load_trade_cfg()
+    broker_type_for_stores = _trade_cfg.get("broker_type", "futu")
+    trade_store = create_trade_store(broker_type_for_stores)
+    alert_store = create_alert_store(broker_type_for_stores)
+    trade_plan_store = create_trade_plan_store(broker_type_for_stores)
 
     # API routes
     router = create_router(
         service=service, graph=graph, runtime=runtime, broker=broker,
         watchlist_store=watchlist_store, swing_store=swing_store, trade_store=trade_store,
-        position_store=position_store,
+        position_store=position_store, alert_store=alert_store, trade_plan_store=trade_plan_store,
     )
     app.include_router(router, prefix="/api/v1")
 
@@ -257,8 +258,10 @@ def create_app(service: Any = None) -> FastAPI:
             except Exception as e:
                 logger.warning("Startup broker sync failed: %s", e)
 
-    # --- Auto-Pilot background task ---
+    # --- Monitoring + Auto-Pilot background tasks ---
+    _monitoring_task = None
     _auto_pilot_task = None
+
 
     async def _auto_pilot_loop():
         """Background loop: when auto_pilot is ON, periodically invoke Supervisor
@@ -336,37 +339,90 @@ def create_app(service: Any = None) -> FastAPI:
                 await asyncio.sleep(60)  # back off on error
 
     @app.on_event("startup")
+    async def startup_monitoring():
+        """Start the continuous monitoring loop."""
+        import asyncio
+        from stocker.config import load_config as _load_cfg_monitoring
+        from stocker.engine.runtime_state import (
+            set_monitoring_enabled,
+            set_monitoring_interval_seconds,
+        )
+        from stocker.monitoring.loop import monitoring_loop
+
+        _cfg_monitoring = _load_cfg_monitoring()
+        monitoring_enabled = _cfg_monitoring.get("monitoring_enabled", "true").lower() == "true"
+        monitoring_interval = int(_cfg_monitoring.get("monitoring_interval_seconds", 300))
+        set_monitoring_enabled(monitoring_enabled)
+        set_monitoring_interval_seconds(monitoring_interval)
+
+        nonlocal _monitoring_task
+        _monitoring_task = asyncio.create_task(
+            monitoring_loop(
+                broker=broker,
+                position_store=position_store,
+                watchlist_store=watchlist_store,
+                alert_store=alert_store,
+            )
+        )
+        app.state.monitoring_task = _monitoring_task
+        logger.info(
+            "[Monitoring] Initialized (enabled=%s, interval=%ss)",
+            monitoring_enabled,
+            monitoring_interval,
+        )
+
+    @app.on_event("startup")
     async def startup_auto_pilot():
         """Start the auto-pilot background loop."""
         import asyncio
-        from stocker.engine.runtime_state import set_auto_pilot
+        from stocker.engine.runtime_state import set_auto_pilot, set_auto_pilot_interval
         from stocker.config import load_config as _load_cfg2
         _cfg2 = _load_cfg2()
         # Initialize from .env
         auto_enabled = _cfg2.get("auto_trading_enabled", "false").lower() == "true"
         set_auto_pilot(auto_enabled)
+        set_auto_pilot_interval(int(_cfg2.get("auto_pilot_interval_minutes", 60)))
 
         nonlocal _auto_pilot_task
         _auto_pilot_task = asyncio.create_task(_auto_pilot_loop())
+        app.state.auto_pilot_task = _auto_pilot_task
         logger.info("[AutoPilot] Initialized (enabled=%s)", auto_enabled)
 
-    # Store task reference on app for route access
+    # Store task references on app for route access
+    app.state.monitoring_task = None
     app.state.auto_pilot_task = None
+
 
     # Health check
     @app.get("/health")
     async def health():
         return {"status": "ok", "service": "stocker"}
 
-    # Shutdown: clean up runtime
+    # Shutdown: clean up background tasks and runtime
     @app.on_event("shutdown")
     async def shutdown():
+        import asyncio
+
+        for task_name, task in (
+            ("Monitoring", _monitoring_task),
+            ("AutoPilot", _auto_pilot_task),
+        ):
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    logger.info("[%s] Background task stopped on app shutdown", task_name)
+                except Exception as e:
+                    logger.warning("[%s] Error stopping background task: %s", task_name, e)
+
         if runtime is not None:
             try:
                 runtime.stop()
                 logger.info("FutuRuntime stopped on app shutdown")
             except Exception as e:
                 logger.warning("Error stopping FutuRuntime: %s", e)
+
 
     # Frontend SPA
     @app.get("/", response_class=HTMLResponse)

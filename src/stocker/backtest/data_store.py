@@ -129,14 +129,14 @@ class HistoricalDataStore:
         return list(self._data.keys())
 
     # ------------------------------------------------------------------
-    # DataRouter integration
+    # Legacy DataRouter integration
     # ------------------------------------------------------------------
 
     def register_as_provider(self, router) -> None:
-        """Register historical data methods on a ``DataRouter`` as the highest-priority provider.
+        """Register historical data methods on a legacy ``DataRouter``.
 
-        This allows the Intelligence subgraph (via DataFetcher → DataRouter)
-        to transparently read from historical data during backtest.
+        The main Intelligence graph no longer reads through DataRouter; this is
+        retained for older backtest/full-mode experiments only.
         """
         store = self
 

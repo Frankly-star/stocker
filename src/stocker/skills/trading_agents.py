@@ -1,12 +1,8 @@
-"""Skill adapter for TradingAgents: multi-vendor data fetching with auto-fallback.
+"""Legacy skill adapter for TradingAgents multi-vendor data fetching.
 
-Wraps TradingAgents' route_to_vendor() system which supports:
-- yfinance (default, no API key)
-- Alpha Vantage (optional, needs ALPHA_VANTAGE_API_KEY)
-
-The vendor router automatically falls back between providers when one is rate-limited.
-This skill serves as the LAST RESORT data source when both westock-data and
-stocker's own yfinance provider are unavailable.
+TradingAgents is no longer part of Stocker's main market/news data route. The
+fixed route is DataFetcher → westock-data for market data and finance-news RSS
+for news. Keep this adapter only as a manually discoverable legacy skill.
 """
 
 from __future__ import annotations
@@ -54,9 +50,8 @@ class TradingAgentsSkill(SkillAdapter):
     @property
     def description(self) -> str:
         return (
-            "TradingAgents multi-vendor data: OHLCV prices, technical indicators (SMA/EMA/MACD/RSI/BOLL/ATR), "
-            "fundamentals, financial statements, news, insider transactions. "
-            "Auto-fallback between yfinance and Alpha Vantage."
+            "Legacy TradingAgents multi-vendor data tools. Not used by Stocker's fixed "
+            "DataFetcher route; keep only for manual diagnostics or migration work."
         )
 
     def get_manifest(self) -> SkillManifest:
@@ -73,19 +68,19 @@ class TradingAgentsSkill(SkillAdapter):
 
     def load(self) -> dict:
         prompt = (
-            "You have access to TradingAgents data tools (yfinance + Alpha Vantage auto-fallback).\n"
+            "You have access to legacy TradingAgents data tools.\n"
             "- ta_stock_data: OHLCV price data for a date range\n"
             "- ta_indicators: Technical indicators (rsi/macd/boll/atr/sma/ema etc.)\n"
             "- ta_fundamentals: Company overview (PE/PB/MarketCap/Revenue etc.)\n"
             "- ta_financials: Balance sheet, cashflow, income statement\n"
             "- ta_news: Ticker-specific and global news\n"
             "- ta_insider: Insider transactions\n"
-            "These are FALLBACK tools — use only when westock-data AND primary tools both fail.\n"
+            "These tools are not part of Stocker's fixed main data route.\n"
         )
 
         @tool
         def ta_stock_data(symbol: str, start_date: str, end_date: str) -> str:
-            """Get OHLCV stock price data via TradingAgents (yfinance/AlphaVantage auto-fallback).
+            """Get OHLCV stock price data via legacy TradingAgents.
             symbol: ticker like AAPL, NVDA, TSM
             start_date/end_date: yyyy-mm-dd format"""
             return _safe_route("get_stock_data", symbol, start_date, end_date)

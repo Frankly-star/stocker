@@ -61,6 +61,36 @@ class BacktestRequest(BaseModel):
     benchmark: str = ""
 
 
+class PaperValidateRequest(BaseModel):
+    execute: bool = False
+    ticker: str = "AAPL"
+    action: str = "buy"
+    quantity: int = 1
+    price: float | None = None
+
+
+class TradePlanCreateRequest(BaseModel):
+    alert_id: str
+    quantity: int | None = None
+    action: str | None = None
+    price: float | None = None
+
+
+class TradePlanExecuteRequest(BaseModel):
+    price: float | None = None
+
+
+class EvolutionSkillCreateRequest(BaseModel):
+    skill: dict[str, Any]
+
+
+class EvolutionPatchApproveRequest(BaseModel):
+    approved_by: str = "user"
+    evidence_ids: list[str] = []
+    evidence_note: str = ""
+
+
+
 # ---------------------------------------------------------------------------
 # Conversation memory (in-memory, single-session)
 # ---------------------------------------------------------------------------
@@ -98,6 +128,8 @@ def create_router(
     swing_store: Any = None,
     trade_store: Any = None,
     position_store: Any = None,
+    alert_store: Any = None,
+    trade_plan_store: Any = None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -115,11 +147,18 @@ def create_router(
         if service is not None and hasattr(service, "config"):
             service.config["execution_mode"] = mode
 
+    def _paper_initial_cash() -> float:
+        from stocker.config import load_config
+        return float(load_config().get("paper_initial_cash", 100_000.0))
+
     # ----- Status -----
+
 
     @router.get("/status")
     async def get_status():
         positions = position_store.list_all() if position_store else []
+
+        from stocker.engine.runtime_state import get_monitoring_status
 
         status = {
             "status": "running",
@@ -131,10 +170,12 @@ def create_router(
                 "execution": "ready" if broker else "idle",
             },
             "scheduler": "running",
+            "monitoring": get_monitoring_status(),
             "broker": broker.broker_name if broker and hasattr(broker, "broker_name") else "futu",
             "positions_count": len(positions),
             "execution_mode": _get_execution_mode(),
         }
+
 
         if runtime is not None and hasattr(runtime, "get_runtime_status"):
             status["futu_runtime"] = runtime.get_runtime_status()
@@ -198,17 +239,23 @@ def create_router(
             result = await active_broker.place_order(order)
 
             # Record trade history
-            _trade_history.append({
+            trade_record = {
                 "trade_id": result.order_id,
                 "ticker": result.ticker,
                 "side": result.side.value,
                 "quantity": result.quantity,
                 "price": result.filled_price,
-                "status": result.status.value,
                 "timestamp": result.timestamp.isoformat(),
                 "broker": result.broker,
-                "error": result.error,
-            })
+                "notes": f"status={result.status.value}" + (f"; error={result.error}" if result.error else ""),
+            }
+            _trade_history.append({**trade_record, "status": result.status.value, "error": result.error})
+            if trade_store is not None:
+                try:
+                    trade_store.add(trade_record)
+                except Exception as e:
+                    logger.warning("Failed to persist trade record: %s", e)
+
 
             # --- Auto swing trade lifecycle ---
             swing_trade = None
@@ -278,7 +325,13 @@ def create_router(
     @router.get("/trades")
     async def get_trade_history():
         """Get trade history (most recent first)."""
-        return {"trades": list(reversed(_trade_history[-100:]))}
+        if trade_store is not None:
+            try:
+                return {"trades": trade_store.list_recent(limit=100), "source": "trade_store"}
+            except Exception as e:
+                logger.warning("Failed to read TradeStore: %s", e)
+        return {"trades": list(reversed(_trade_history[-100:])), "source": "memory"}
+
 
     # ----- Broker Account Info -----
 
@@ -299,6 +352,165 @@ def create_router(
         except Exception as e:
             logger.error("Account info failed: %s", e)
             return {"account": {}, "connected": False, "error": str(e)}
+
+    # ----- Alerts -----
+
+    @router.get("/alerts/positions")
+    async def get_position_alerts(refresh: bool = True):
+        """Get current position alerts, optionally refreshing from live fixed-source data."""
+        if alert_store is None:
+            return {"alerts": [], "error": "Alert store not initialized"}
+        if not refresh:
+            return {"alerts": alert_store.list_active(limit=100), "refreshed": False}
+        if position_store is None:
+            return {"alerts": alert_store.list_active(limit=100), "error": "Position store not initialized"}
+
+        from stocker.alerts.position_alerts import generate_position_alerts
+        result = await asyncio.to_thread(generate_position_alerts, position_store, alert_store)
+        result["refreshed"] = True
+        return result
+
+    @router.post("/alerts/{alert_id}/handled")
+    async def mark_alert_handled(alert_id: str):
+        """Mark an alert as handled."""
+        if alert_store is None:
+            return {"success": False, "error": "Alert store not initialized"}
+        return {"success": alert_store.mark_handled(alert_id)}
+
+    # ----- Trade plans (alert -> confirmed westock-paper execution) -----
+
+    @router.get("/trade-plans")
+    async def list_trade_plans(status: str = ""):
+        if trade_plan_store is None:
+            return {"plans": [], "error": "Trade plan store not initialized"}
+        try:
+            return {"plans": trade_plan_store.list_by_status(status or None)}
+        except ValueError as e:
+            return {"plans": [], "error": str(e)}
+
+    @router.post("/trade-plans/from-alert")
+    async def create_trade_plan_from_alert(req: TradePlanCreateRequest):
+        if alert_store is None or trade_plan_store is None:
+            return {"success": False, "error": "Alert store or trade plan store not initialized"}
+        alert = alert_store.get_by_id(req.alert_id)
+        if alert is None:
+            return {"success": False, "error": f"Alert {req.alert_id} not found"}
+        try:
+            from stocker.trade_plan.from_alert import create_plan_from_alert
+            plan = create_plan_from_alert(
+                alert,
+                position_store=position_store,
+                quantity=req.quantity,
+                action=req.action,
+                price=req.price,
+            )
+            trade_plan_store.add(plan)
+            return {"success": True, "plan": plan.model_dump(mode="json")}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @router.post("/trade-plans/{plan_id}/execute")
+    async def execute_trade_plan(plan_id: str, req: TradePlanExecuteRequest):
+        if trade_plan_store is None:
+            return {"success": False, "error": "Trade plan store not initialized"}
+        plan = trade_plan_store.get(plan_id)
+        if plan is None:
+            return {"success": False, "error": f"Trade plan {plan_id} not found"}
+        if str(plan.status) != "pending" and getattr(plan.status, "value", plan.status) != "pending":
+            return {"success": False, "error": f"Trade plan {plan_id} is not pending"}
+        if _get_execution_mode() != "active":
+            return {"success": False, "error": "execution_mode must be active to execute a westock paper trade plan"}
+
+        from stocker.paper.westock_sim import place_westock_paper_order
+        result = await asyncio.to_thread(
+            place_westock_paper_order,
+            ticker=plan.ticker,
+            action=plan.action,
+            quantity=plan.quantity,
+            position_store=position_store,
+            trade_store=trade_store,
+            initial_cash=_paper_initial_cash(),
+            price=req.price or plan.suggested_price,
+        )
+        plan.mark_executed(result)
+        trade_plan_store.update(plan)
+        if alert_store is not None and plan.source_alert_id:
+            alert_store.mark_handled(plan.source_alert_id)
+        return {"success": result.get("status") == "filled", "plan": plan.model_dump(mode="json"), "result": result}
+
+    @router.post("/trade-plans/{plan_id}/cancel")
+    async def cancel_trade_plan(plan_id: str):
+        if trade_plan_store is None:
+            return {"success": False, "error": "Trade plan store not initialized"}
+        plan = trade_plan_store.get(plan_id)
+        if plan is None:
+            return {"success": False, "error": f"Trade plan {plan_id} not found"}
+        plan.mark_cancelled()
+        trade_plan_store.update(plan)
+        return {"success": True, "plan": plan.model_dump(mode="json")}
+
+    # ----- Paper trading validation -----
+
+    @router.get("/paper/status")
+    async def get_paper_status():
+        """Validate westock-data paper simulation readiness without broker calls."""
+        from stocker.paper.westock_sim import get_westock_paper_status
+        status = await asyncio.to_thread(
+            get_westock_paper_status,
+            position_store=position_store,
+            trade_store=trade_store,
+            initial_cash=_paper_initial_cash(),
+        )
+        return status
+
+    @router.post("/paper/validate")
+    async def validate_paper_order(req: PaperValidateRequest):
+        """Run PAPER-001 via westock-data paper simulation; no broker/Futu calls."""
+        from stocker.paper.westock_sim import get_westock_paper_status, place_westock_paper_order
+
+        account_before = await asyncio.to_thread(
+            get_westock_paper_status,
+            position_store=position_store,
+            trade_store=trade_store,
+            initial_cash=_paper_initial_cash(),
+        )
+        response: dict[str, Any] = {
+            "ready": account_before.get("ready", False),
+            "executed": False,
+            "broker": "westock-paper",
+            "execution_mode": _get_execution_mode(),
+            "account_before": account_before.get("account", {}),
+            "positions_before": account_before.get("positions", []),
+        }
+
+        if not req.execute:
+            response["message"] = "Westock paper validation passed. Set execute=true to place a controlled westock-data simulated order."
+            return response
+
+        if _get_execution_mode() != "active":
+            response["error"] = "execution_mode must be active to place a westock paper order"
+            return response
+
+        result = await asyncio.to_thread(
+            place_westock_paper_order,
+            ticker=req.ticker,
+            action=req.action,
+            quantity=req.quantity,
+            position_store=position_store,
+            trade_store=trade_store,
+            initial_cash=_paper_initial_cash(),
+            price=req.price,
+        )
+        response.update({
+            "executed": result.get("status") == "filled",
+            "order": result,
+            "account_after": result.get("account_after", account_before.get("account", {})),
+            "positions_after": result.get("positions_after", account_before.get("positions", [])),
+        })
+        if result.get("error"):
+            response["error"] = result["error"]
+        return response
+
 
     # ----- Logs -----
 
@@ -331,39 +543,12 @@ def create_router(
 
     @router.get("/reports")
     async def get_reports():
-        """Get cached analysis reports."""
-        report_dir = Path("data")
-        reports = []
+        """Get cached analysis reports from the canonical analysis cache directory."""
+        from stocker.agents.supervisor import AnalysisCache
 
-        # Read from analysis_cache.json if it exists
-        cache_file = report_dir / "analysis_cache.json"
-        if cache_file.exists():
-            try:
-                import json as json_mod
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    cached = json_mod.load(f)
-                if isinstance(cached, list):
-                    reports.extend(cached)
-                elif isinstance(cached, dict):
-                    for ticker, data in cached.items():
-                        if isinstance(data, dict):
-                            data["ticker"] = ticker
-                            reports.append(data)
-            except Exception as e:
-                logger.warning("Failed to read analysis cache: %s", e)
+        reports = AnalysisCache().list_latest(limit=50)
+        return {"reports": reports}
 
-        # Also check for individual report files
-        for f in sorted(report_dir.glob("report_*.json"), reverse=True):
-            try:
-                import json as json_mod
-                with open(f, "r", encoding="utf-8") as fh:
-                    r = json_mod.load(fh)
-                    if isinstance(r, dict):
-                        reports.append(r)
-            except Exception:
-                pass
-
-        return {"reports": reports[:50]}
 
     # ----- Broker Config (read/switch) -----
 
@@ -401,6 +586,28 @@ def create_router(
         )
 
         return {"execution_mode": mode, "message": f"已切换到 {mode} 模式"}
+
+    # ----- Continuous Monitoring -----
+
+    @router.get("/monitoring")
+    async def get_monitoring():
+        """Get continuous monitoring loop status."""
+        from stocker.engine.runtime_state import get_monitoring_status
+        return {"monitoring": get_monitoring_status()}
+
+    @router.post("/monitoring")
+    async def set_monitoring(body: dict):
+        """Toggle monitoring and optionally update interval_seconds."""
+        from stocker.engine.runtime_state import (
+            get_monitoring_status,
+            set_monitoring_enabled,
+            set_monitoring_interval_seconds,
+        )
+        if "enabled" in body:
+            set_monitoring_enabled(bool(body["enabled"]))
+        if "interval_seconds" in body:
+            set_monitoring_interval_seconds(int(body["interval_seconds"]))
+        return {"monitoring": get_monitoring_status()}
 
     # ----- Auto-Pilot -----
 
@@ -584,6 +791,118 @@ def create_router(
         registry.discover_and_register()
         return {"skills": [m.model_dump() for m in registry.list_manifests()]}
 
+    # ----- Evolution Skill Runtime -----
+
+    @router.get("/evolution/skills")
+    async def list_evolution_skills(
+        domain: str = "stocker",
+        team: str = "",
+        node: str = "",
+        status: str = "",
+    ):
+        from stocker.evolution.hermes_compat.curator import SkillCurator
+        reader = SkillCurator().reader
+        return {
+            "skills": reader.list_skills(
+                domain=domain or None,
+                team=team or None,
+                node=node or None,
+                status=status or None,
+            )
+        }
+
+    @router.post("/evolution/skills")
+    async def create_evolution_skill(req: EvolutionSkillCreateRequest):
+        from stocker.evolution.adapters.stocker_validator import validate_skill
+        from stocker.evolution.hermes_compat.skill_manager import SkillManager
+        from stocker.evolution.models import EvolutionSkill
+        try:
+            skill = EvolutionSkill(**req.skill)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+        validation = validate_skill(skill)
+        if not validation.ok:
+            return {"success": False, "validation": validation.model_dump(mode="json")}
+        result = SkillManager().create(skill)
+        return {**result, "validation": validation.model_dump(mode="json")}
+
+    @router.get("/evolution/skills/{skill_id}")
+    async def view_evolution_skill(skill_id: str):
+        from stocker.evolution.hermes_compat.skill_reader import SkillReader
+        viewed = SkillReader().view_skill(skill_id)
+        body = {
+            "success": viewed.success,
+            "name": viewed.name,
+            "content": viewed.content,
+            "path": viewed.path,
+            "skill_dir": viewed.skill_dir,
+            "linked_files": viewed.linked_files,
+            "warnings": viewed.warnings or [],
+            "error": viewed.error,
+        }
+        if viewed.skill is not None:
+            body["skill"] = viewed.skill.model_dump(mode="json")
+        return body
+
+    @router.post("/evolution/skills/seed-defaults")
+    async def seed_evolution_defaults(body: dict | None = None):
+        from stocker.evolution.adapters.seed import seed_default_skills
+        overwrite = bool((body or {}).get("overwrite", False))
+        return {"success": True, **seed_default_skills(overwrite=overwrite)}
+
+    @router.get("/evolution/traces")
+    async def list_evolution_traces(limit: int = 100):
+        from stocker.evolution.adapters.trace_store import TraceStore
+        return {"traces": TraceStore().list_recent(limit=limit)}
+
+    @router.get("/evolution/patches")
+    async def list_evolution_patches(status: str = "", limit: int = 100):
+        from stocker.evolution.adapters.patch_store import PatchStore
+        return {"patches": PatchStore().list_patches(status=status or None, limit=limit)}
+
+    @router.post("/evolution/patches/{patch_id}/validate")
+    async def validate_evolution_patch(patch_id: str):
+        from stocker.evolution.adapters.patch_store import PatchStore
+        return PatchStore().validate(patch_id)
+
+    @router.post("/evolution/patches/{patch_id}/approve")
+    async def approve_evolution_patch(patch_id: str, req: EvolutionPatchApproveRequest):
+        from stocker.evolution.adapters.patch_store import PatchStore
+        return PatchStore().approve(
+            patch_id,
+            approved_by=req.approved_by,
+            evidence_ids=req.evidence_ids,
+            evidence_note=req.evidence_note,
+        )
+
+
+    @router.post("/evolution/patches/{patch_id}/apply")
+    async def apply_evolution_patch(patch_id: str):
+        from stocker.evolution.adapters.patch_store import PatchStore
+        return PatchStore().apply(patch_id)
+
+    @router.post("/evolution/curator/run")
+    async def run_evolution_curator(body: dict | None = None):
+        from stocker.evolution.hermes_compat.curator import SkillCurator
+        body = body or {}
+        curator = SkillCurator()
+        lifecycle = curator.apply_lifecycle(
+            stale_after_days=int(body.get("stale_after_days", 30)),
+            archive_after_days=int(body.get("archive_after_days", 90)),
+        )
+        archived = curator.archive_stale() if bool(body.get("archive_stale", False)) else {"archived": [], "errors": {}}
+        return {"success": True, "lifecycle": lifecycle, "archive": archived, "report": curator.report()}
+
+    @router.post("/evolution/review/weekly")
+    async def run_evolution_weekly_review(body: dict | None = None):
+        from stocker.evolution.adapters.weekly_review import WeeklyEvolutionReview
+        body = body or {}
+        report = WeeklyEvolutionReview().generate(
+            trace_limit=int(body.get("trace_limit", 500)),
+            persist=bool(body.get("persist", True)),
+        )
+        return {"success": True, "review": report}
+
     # ----- Strategy Management -----
 
     @router.get("/strategy")
@@ -693,36 +1012,7 @@ def create_router(
     # Real-time quote (via westock-data)
     # ------------------------------------------------------------------
 
-    def _ticker_to_westock_code(ticker: str) -> str:
-        """Convert a generic ticker to westock-data code format.
 
-        Examples: AAPL → usAAPL, 0700.HK → hk00700, 600519.SS → sh600519
-        """
-        t = ticker.strip().upper()
-
-        # Already in westock format
-        if t.startswith(("SH", "SZ", "BJ", "HK", "US")):
-            return t.lower() if t[:2] in ("SH", "SZ", "BJ") else t[:2].lower() + t[2:]
-
-        # Yahoo Finance HK format: 0700.HK → hk00700
-        if t.endswith(".HK"):
-            num = t.replace(".HK", "").zfill(5)
-            return f"hk{num}"
-
-        # Yahoo Finance CN format: 600519.SS → sh600519, 000001.SZ → sz000001
-        if t.endswith(".SS"):
-            return f"sh{t.replace('.SS', '')}"
-        if t.endswith(".SZ"):
-            return f"sz{t.replace('.SZ', '')}"
-
-        # Pure digits → guess CN market
-        if t.isdigit():
-            if t.startswith("6") or t.startswith("9"):
-                return f"sh{t}"
-            return f"sz{t}"
-
-        # Default: treat as US stock
-        return f"us{t}"
 
     def _get_realtime_price(ticker: str) -> dict:
         """Get real-time price via westock-data CLI.
@@ -730,9 +1020,10 @@ def create_router(
         westock-data quote returns either JSON or pipe-separated table text.
         We handle both formats.
         """
+        from stocker.agents.intelligence.data_fetcher import _convert_to_westock_code
         from stocker.skills.westock_data import _run_westock
 
-        code = _ticker_to_westock_code(ticker)
+        code = _convert_to_westock_code(ticker)
         raw = _run_westock(["quote", code], timeout=15)
 
         if not raw:
@@ -833,11 +1124,12 @@ def create_router(
             return {"quotes": {}}
 
         # Batch via westock: convert all tickers to codes, join with comma
+        from stocker.agents.intelligence.data_fetcher import _convert_to_westock_code
         from stocker.skills.westock_data import _run_westock
         codes = []
         ticker_code_map = {}
         for t in tickers[:30]:  # limit batch
-            code = _ticker_to_westock_code(t)
+            code = _convert_to_westock_code(t)
             codes.append(code)
             ticker_code_map[code] = t
 
@@ -952,11 +1244,11 @@ def create_router(
         results = []
         try:
             from stocker.analysis.swing_signals import SwingSignalEngine
-            from stocker.utils.data_helpers import fetch_ohlcv_yfinance
+            from stocker.utils.data_helpers import fetch_ohlcv_westock
             engine = SwingSignalEngine()
             for wi in watchlist_store.list_all():
                 try:
-                    df = fetch_ohlcv_yfinance(wi.ticker)
+                    df = fetch_ohlcv_westock(wi.ticker)
                     if df is None or df.empty:
                         continue
                     signal = engine.analyze(wi.ticker, df)
@@ -965,7 +1257,7 @@ def create_router(
                         sig_dict["ticker"] = wi.ticker
                         results.append(sig_dict)
                         # Update store
-                        watchlist_store.update_signal(wi.ticker, signal)
+                        watchlist_store.update_signal(wi.ticker, sig_dict)
                 except Exception as e:
                     logger.warning("Scan failed for %s: %s", wi.ticker, e)
         except Exception as e:

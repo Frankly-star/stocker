@@ -142,8 +142,14 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 8px 12px 4px;
   font-size: .8rem;
+  color: var(--text-muted);
+}
+.sidebar-status-detail {
+  padding: 0 12px 8px 28px;
+  font-size: .72rem;
+  line-height: 1.4;
   color: var(--text-muted);
 }
 .status-dot {
@@ -185,6 +191,31 @@ button { cursor: pointer; font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.runtime-pill {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-sec);
+  font-size: .75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.runtime-pill.running {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+.runtime-pill.warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+.runtime-pill.offline {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .content {

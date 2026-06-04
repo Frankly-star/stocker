@@ -72,13 +72,40 @@ def create_trader(llm: Any, memory: BM25Memory) -> Callable:
             position_size_min_pct=r.position_size_min_pct,
             position_size_max_pct=r.position_size_max_pct,
         ) + memory_ctx
+        try:
+            from stocker.evolution.adapters.langgraph_prompt_resolver import resolve_prompt
+            resolved_prompt = resolve_prompt(
+                team="risk",
+                node="trader",
+                base_prompt=system_prompt,
+                state=state,
+            )
+        except Exception:
+            resolved_prompt = None
 
+        human_content = f"Investment Plan:\n{investment_plan}\n\nMarket Data:\n{situation[:3000]}"
         messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Investment Plan:\n{investment_plan}\n\nMarket Data:\n{situation[:3000]}"),
+            SystemMessage(content=resolved_prompt.prompt if resolved_prompt else system_prompt),
+            HumanMessage(content=human_content),
         ]
 
+        import time
+        t0 = time.time()
         response = llm.invoke(messages)
+        duration_ms = int((time.time() - t0) * 1000)
+        try:
+            from stocker.evolution.adapters.trace_store import record_node_trace
+            record_node_trace(
+                team="risk",
+                node="trader",
+                state=state,
+                input_text=human_content,
+                output_text=response.content,
+                resolved_prompt=resolved_prompt,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            pass
 
         return {
             "messages": [response],

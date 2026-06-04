@@ -36,18 +36,44 @@ def create_bull_researcher(llm: Any, memory: BM25Memory) -> Callable:
             "Be persuasive but grounded in data. Counter the bear's arguments if any."
             + memory_context
         )
+        try:
+            from stocker.evolution.adapters.langgraph_prompt_resolver import resolve_prompt
+            resolved_prompt = resolve_prompt(
+                team="risk",
+                node="bull_researcher",
+                base_prompt=system_prompt,
+                state=state,
+            )
+        except Exception:
+            resolved_prompt = None
 
         human_msg = f"Market Intelligence:\n{situation}"
         if bear_history:
             human_msg += f"\n\nBear's previous argument:\n{bear_history}"
 
         messages = [
-            SystemMessage(content=system_prompt),
+            SystemMessage(content=resolved_prompt.prompt if resolved_prompt else system_prompt),
             HumanMessage(content=human_msg),
         ]
 
+        import time
+        t0 = time.time()
         response = llm.invoke(messages)
+        duration_ms = int((time.time() - t0) * 1000)
         content = response.content
+        try:
+            from stocker.evolution.adapters.trace_store import record_node_trace
+            record_node_trace(
+                team="risk",
+                node="bull_researcher",
+                state=state,
+                input_text=human_msg,
+                output_text=content,
+                resolved_prompt=resolved_prompt,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            pass
 
         # Update debate state
         new_debate = dict(debate_state)
@@ -88,18 +114,44 @@ def create_bear_researcher(llm: Any, memory: BM25Memory) -> Callable:
             "Be persuasive but grounded in data. Counter the bull's arguments."
             + memory_context
         )
+        try:
+            from stocker.evolution.adapters.langgraph_prompt_resolver import resolve_prompt
+            resolved_prompt = resolve_prompt(
+                team="risk",
+                node="bear_researcher",
+                base_prompt=system_prompt,
+                state=state,
+            )
+        except Exception:
+            resolved_prompt = None
 
         human_msg = f"Market Intelligence:\n{situation}"
         if bull_history:
             human_msg += f"\n\nBull's previous argument:\n{bull_history}"
 
         messages = [
-            SystemMessage(content=system_prompt),
+            SystemMessage(content=resolved_prompt.prompt if resolved_prompt else system_prompt),
             HumanMessage(content=human_msg),
         ]
 
+        import time
+        t0 = time.time()
         response = llm.invoke(messages)
+        duration_ms = int((time.time() - t0) * 1000)
         content = response.content
+        try:
+            from stocker.evolution.adapters.trace_store import record_node_trace
+            record_node_trace(
+                team="risk",
+                node="bear_researcher",
+                state=state,
+                input_text=human_msg,
+                output_text=content,
+                resolved_prompt=resolved_prompt,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            pass
 
         new_debate = dict(debate_state)
         new_debate["bear_history"] = content

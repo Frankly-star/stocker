@@ -7,7 +7,7 @@ from typing import Any
 
 from stocker.analysis.models import SwingSignal
 from stocker.analysis.swing_signals import SwingSignalEngine
-from stocker.utils.data_helpers import fetch_ohlcv_yfinance
+from stocker.utils.data_helpers import fetch_ohlcv_westock
 from stocker.watchlist.models import ScanFilter
 from stocker.watchlist.store import WatchlistStore
 
@@ -33,7 +33,7 @@ class WatchlistScanner:
         Args:
             scan_filter: Optional filter criteria to narrow results.
             data_fetch_func: Async callable(ticker) -> pd.DataFrame (OHLCV).
-                             If None, will use yfinance as fallback.
+                             If None, will use westock-data fixed source.
 
         Returns:
             List of scan results sorted by signal strength.
@@ -56,7 +56,7 @@ class WatchlistScanner:
                 if data_fetch_func:
                     df = await data_fetch_func(ticker)
                 else:
-                    df = fetch_ohlcv_yfinance(ticker)
+                    df = fetch_ohlcv_westock(ticker)
 
                 # Generate signal
                 signal = self._engine.analyze(ticker, df)
@@ -136,15 +136,4 @@ class WatchlistScanner:
 
         return True
 
-    @staticmethod
-    def _fetch_yfinance(ticker: str):
-        """Fallback: fetch OHLCV data via yfinance."""
-        try:
-            import yfinance as yf
-            obj = yf.Ticker(ticker)
-            df = obj.history(period="6mo")
-            if df is not None and not df.empty:
-                return df
-        except Exception as e:
-            logger.debug("yfinance fetch for %s failed: %s", ticker, e)
-        return None
+

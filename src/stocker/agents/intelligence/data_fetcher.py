@@ -1,19 +1,12 @@
-"""DataFetcher: centralized data acquisition node for the Intelligence subgraph.
+"""DataFetcher: single-source data acquisition node for Intelligence.
 
-This node runs ONCE before all analyst agents. It fetches all required data
-from multiple sources with automatic fallback, then stores everything in
-`shared_data` so analysts only read from state — no duplicate API calls.
+This node runs once before all analyst agents and is the only data entrance for
+stock analysis. The source policy is intentionally simple:
+- K-line, quote, technicals, fundamentals, fund flow, rating: westock-data only.
+- News and global headlines: finance-news RSS only.
 
-News source priority:
-  1. finance-news skill RSS (WSJ/Bloomberg/FT/Reuters/CNBC — pure HTTP, zero rate limits)
-  2. westock-data news (Tencent — no rate limits)
-  3. DDG search (fallback)
-  4. yfinance / TradingAgents (last resort)
-
-Price/technical source priority:
-  1. westock-data (quote, kline, technical, finance, fund_flow, rating)
-  2. yfinance (kline, fundamentals)
-  3. TradingAgents (yfinance + Alpha Vantage auto-fallback)
+No automatic fallback is performed. If the fixed source fails or returns empty,
+the failure is recorded in `data_warnings` and exposed to downstream reports.
 """
 
 from __future__ import annotations
@@ -59,15 +52,22 @@ def _convert_to_westock_code(ticker: str) -> str:
     return t.lower()
 
 
-def _try_call(func, *args, label="", **kwargs) -> str:
-    """Safely call a data function, return result string or empty on failure."""
+def _try_call(func, *args, label="", warnings: list[str] | None = None, **kwargs) -> str:
+    """Safely call the fixed data source, returning text or recording failure."""
     try:
         result = func(*args, **kwargs)
-        if result and "error" not in str(result).lower()[:80]:
-            logger.info("[DataFetcher] %s: got %d chars", label, len(str(result)))
-            return str(result)
+        text = str(result).strip() if result is not None else ""
+        if text and "error" not in text.lower()[:120] and "timeout" not in text.lower()[:120]:
+            logger.info("[DataFetcher] %s: got %d chars", label, len(text))
+            return text
+        reason = text[:200] if text else "empty response"
+        logger.warning("[DataFetcher] %s unavailable: %s", label, reason)
+        if warnings is not None:
+            warnings.append(f"{label}: {reason}")
     except Exception as e:
-        logger.debug("[DataFetcher] %s failed: %s", label, e)
+        logger.warning("[DataFetcher] %s failed: %s", label, e)
+        if warnings is not None:
+            warnings.append(f"{label}: {e}")
     return ""
 
 
@@ -93,21 +93,22 @@ def _fetch_finance_news_rss(
     try:
         from fetch_news import fetch_ticker_news, get_market_news
 
-        # 1. Ticker-specific news via Yahoo RSS (pure HTTP)
-        # Strip exchange suffix for Yahoo RSS compatibility
-        clean_ticker = ticker.upper().split(".")[0]
-        articles = fetch_ticker_news(clean_ticker, limit=ticker_limit)
-        if articles:
-            lines = [f"## {ticker} News (RSS)\n"]
-            for a in articles:
-                lines.append(f"- **{a.get('title', '')}**")
-                if a.get("description"):
-                    lines.append(f"  {a['description'][:150]}")
-                if a.get("link"):
-                    lines.append(f"  {a['link']}")
-                lines.append("")
-            ticker_news = "\n".join(lines)
-            logger.info("[DataFetcher] fn_rss.ticker_news: %d articles for %s", len(articles), ticker)
+        # 1. Ticker-specific news via RSS (pure HTTP)
+        # Strip exchange suffix for Yahoo RSS compatibility.
+        if ticker and ticker_limit > 0:
+            clean_ticker = ticker.upper().split(".")[0]
+            articles = fetch_ticker_news(clean_ticker, limit=ticker_limit)
+            if articles:
+                lines = [f"## {ticker} News (RSS)\n"]
+                for a in articles:
+                    lines.append(f"- **{a.get('title', '')}**")
+                    if a.get("description"):
+                        lines.append(f"  {a['description'][:150]}")
+                    if a.get("link"):
+                        lines.append(f"  {a['link']}")
+                    lines.append("")
+                ticker_news = "\n".join(lines)
+                logger.info("[DataFetcher] fn_rss.ticker_news: %d articles for %s", len(articles), ticker)
 
         # 2. Global headlines from premium RSS sources
         market = get_market_news(
@@ -182,51 +183,17 @@ def create_data_fetcher_node():
             "rating": "",
             "insider": "",
             "sources_used": [],
+            "data_warnings": [],
+            "source_policy": {
+                "market_data": "westock-data",
+                "news": "finance-news-rss",
+                "fallback": "disabled",
+            },
         }
+        warnings = shared["data_warnings"]
 
         # =============================================================
-        # FUTU QUOTE (highest priority for HK/US when runtime is available)
-        # =============================================================
-        futu_used = False
-        try:
-            from stocker.engine.runtime import get_active_runtime
-            from stocker.integrations.futu.mappers import convert_ticker_to_futu
-
-            futu_rt = get_active_runtime()
-            if futu_rt is not None and futu_rt.started:
-                futu_code = convert_ticker_to_futu(ticker, futu_rt.config.market)
-
-                # Quote / snapshot
-                snap = futu_rt.get_cached_quote(futu_code)
-                if not snap:
-                    snap = futu_rt.get_snapshot(futu_code)
-                if snap:
-                    lines = [f"{k}: {v}" for k, v in snap.items() if v is not None]
-                    shared["quote"] = "\n".join(lines)
-                    shared["sources_used"].append("futu:quote")
-                    futu_used = True
-
-                # K-line (daily)
-                kbars = futu_rt.get_kline(futu_code, "K_DAY", kline_count)
-                if kbars:
-                    import csv, io
-                    buf = io.StringIO()
-                    if kbars:
-                        writer = csv.DictWriter(buf, fieldnames=kbars[0].keys())
-                        writer.writeheader()
-                        writer.writerows(kbars)
-                    shared["kline"] = buf.getvalue()
-                    shared["sources_used"].append("futu:kline")
-                    futu_used = True
-
-                if futu_used:
-                    logger.info("[DataFetcher] Futu data acquired for %s (%s)", ticker, futu_code)
-        except Exception as e:
-            logger.debug("[DataFetcher] Futu data source unavailable: %s", e)
-
-        # =============================================================
-        # NEWS FIRST: finance-news RSS (pure HTTP, zero rate limit risk)
-        # Sources: WSJ, Bloomberg, FT, Reuters, CNBC, Yahoo, MarketWatch
+        # NEWS: finance-news RSS only
         # =============================================================
         fn_ticker_news, fn_global_news = _fetch_finance_news_rss(
             ticker,
@@ -238,147 +205,71 @@ def create_data_fetcher_node():
         if fn_ticker_news:
             shared["news"] = fn_ticker_news
             shared["sources_used"].append("finance-news-rss:ticker")
+        else:
+            warnings.append("finance-news-rss:ticker: empty response")
         if fn_global_news:
             shared["global_news"] = fn_global_news
             shared["sources_used"].append("finance-news-rss:global")
+        else:
+            warnings.append("finance-news-rss:global: empty response")
 
         # =============================================================
-        # PRICE/TECHNICAL/FUNDAMENTALS: westock-data (no rate limits)
+        # MARKET DATA: westock-data only
         # =============================================================
-        ws_available = False
         try:
             from stocker.skills.westock_data import _run_westock
-            ws_available = True
-        except ImportError:
-            logger.debug("[DataFetcher] westock-data not available")
-
-        if ws_available:
-            q = _try_call(_run_westock, ["quote", ws_code], label="ws.quote", timeout=15)
+        except ImportError as e:
+            logger.warning("[DataFetcher] westock-data unavailable: %s", e)
+            warnings.append(f"westock-data: import failed: {e}")
+        else:
+            q = _try_call(_run_westock, ["quote", ws_code], label="westock:quote", warnings=warnings, timeout=15)
             if q:
                 shared["quote"] = q
                 shared["sources_used"].append("westock:quote")
 
-            k = _try_call(_run_westock, ["kline", ws_code, "day", str(kline_count), "qfq"],
-                          label="ws.kline", timeout=30)
+            k = _try_call(
+                _run_westock,
+                ["kline", ws_code, "day", str(kline_count), "qfq"],
+                label="westock:kline",
+                warnings=warnings,
+                timeout=30,
+            )
             if k:
                 shared["kline"] = k
                 shared["sources_used"].append("westock:kline")
 
-            t = _try_call(_run_westock, ["technical", ws_code, "all"],
-                          label="ws.technical", timeout=20)
+            t = _try_call(_run_westock, ["technical", ws_code, "all"], label="westock:technical", warnings=warnings, timeout=20)
             if t:
                 shared["technical"] = t
                 shared["sources_used"].append("westock:technical")
 
-            # Supplement news from westock if RSS didn't get ticker news
-            if not shared["news"]:
-                n = _try_call(_run_westock, ["news", ws_code], label="ws.news", timeout=20)
-                if n:
-                    shared["news"] = n
-                    shared["sources_used"].append("westock:news")
-
-            f = _try_call(_run_westock, ["finance", ws_code, "4"],
-                          label="ws.finance", timeout=45)
+            f = _try_call(_run_westock, ["finance", ws_code, "4"], label="westock:finance", warnings=warnings, timeout=45)
             if f:
                 shared["finance"] = f
                 shared["fundamentals"] = f
                 shared["sources_used"].append("westock:finance")
 
-            ff = _try_call(_run_westock,
-                           ["hkfund" if ws_code.startswith("hk") else
-                            "usfund" if ws_code.startswith("us") else "asfund",
-                            ws_code],
-                           label="ws.fund_flow", timeout=20)
+            ff_cmd = "hkfund" if ws_code.startswith("hk") else "usfund" if ws_code.startswith("us") else "asfund"
+            ff = _try_call(_run_westock, [ff_cmd, ws_code], label="westock:fund_flow", warnings=warnings, timeout=20)
             if ff:
                 shared["fund_flow"] = ff
                 shared["sources_used"].append("westock:fund_flow")
 
-            r = _try_call(_run_westock, ["rating", ws_code], label="ws.rating", timeout=20)
+            r = _try_call(_run_westock, ["rating", ws_code], label="westock:rating", warnings=warnings, timeout=20)
             if r:
                 shared["rating"] = r
                 shared["sources_used"].append("westock:rating")
 
-        # =============================================================
-        # Early exit if core data is complete — skip all slow fallbacks
-        # =============================================================
-        has_price = bool(shared["quote"] or shared["kline"])
-        has_news = bool(shared["news"])
-        has_fundamentals = bool(shared["fundamentals"] or shared["finance"])
+        for key, source in {
+            "quote": "westock:quote",
+            "kline": "westock:kline",
+            "technical": "westock:technical",
+            "news": "finance-news-rss:ticker",
+            "finance": "westock:finance",
+        }.items():
+            if not shared.get(key):
+                warnings.append(f"{source}: unavailable; fallback disabled")
 
-        if has_price and has_news and has_fundamentals:
-            logger.info("[DataFetcher] Core data complete, skipping fallback layers")
-        else:
-            # ----- DDG search for news -----
-            if not shared["news"]:
-                try:
-                    from stocker.skills.finance_news import FinanceNewsSkill
-                    skill = FinanceNewsSkill()
-                    loaded = skill.load()
-                    tools_map = {tool.name: tool for tool in loaded["tools"]}
-                    if "search_stock_news" in tools_map:
-                        n2 = _try_call(tools_map["search_stock_news"].invoke,
-                                       {"query": f"{ticker} stock"}, label="ddg.news")
-                        if n2:
-                            shared["news"] = n2
-                            shared["sources_used"].append("ddg:news")
-                except Exception as e:
-                    logger.debug("[DataFetcher] DDG news fallback: %s", e)
-
-            # ----- yfinance (fill remaining gaps ONLY) -----
-            if not shared["kline"]:
-                try:
-                    from stocker.agents.intelligence.market_data_agent import _fetch_yfinance_ohlcv
-                    df, src = _fetch_yfinance_ohlcv(ticker)
-                    if df is not None and not df.empty and len(df) >= 50:
-                        shared["kline"] = df.tail(kline_count).to_csv(index=False)
-                        shared["sources_used"].append(f"yfinance:kline({src})")
-                except Exception as e:
-                    logger.debug("[DataFetcher] yfinance kline: %s", e)
-
-            if not shared["fundamentals"] and not shared["finance"]:
-                try:
-                    import yfinance as yf
-                    from stocker.dataflows.yfinance_provider import _yf_retry
-                    obj = yf.Ticker(ticker.upper())
-                    info = _yf_retry(lambda: obj.info)
-                    if info:
-                        lines = [f"{k}: {v}" for k, v in info.items()
-                                 if v is not None and k not in ("companyOfficers",)]
-                        shared["fundamentals"] = "\n".join(lines[:40])
-                        shared["sources_used"].append("yfinance:fundamentals")
-                except Exception as e:
-                    logger.debug("[DataFetcher] yfinance fundamentals: %s", e)
-
-            # ----- TradingAgents (last resort) -----
-            if not shared["quote"] and not shared["kline"]:
-                try:
-                    from stocker.skills.trading_agents import _safe_route
-                    sd = _safe_route("get_stock_data", ticker, start_date, trade_date)
-                    if sd and "error" not in sd.lower()[:80]:
-                        shared["kline"] = sd
-                        shared["sources_used"].append("ta:stock_data")
-                except Exception as e:
-                    logger.debug("[DataFetcher] TA stock_data: %s", e)
-
-            if not shared["fundamentals"] and not shared["finance"]:
-                try:
-                    from stocker.skills.trading_agents import _safe_route
-                    fd = _safe_route("get_fundamentals", ticker, trade_date)
-                    if fd and "error" not in fd.lower()[:80]:
-                        shared["fundamentals"] = fd
-                        shared["sources_used"].append("ta:fundamentals")
-                except Exception as e:
-                    logger.debug("[DataFetcher] TA fundamentals: %s", e)
-
-            if not shared["news"]:
-                try:
-                    from stocker.skills.trading_agents import _safe_route
-                    nd = _safe_route("get_news", ticker, start_date, trade_date)
-                    if nd and "error" not in nd.lower()[:80]:
-                        shared["news"] = nd
-                        shared["sources_used"].append("ta:news")
-                except Exception as e:
-                    logger.debug("[DataFetcher] TA news: %s", e)
 
         # =============================================================
         # Summary

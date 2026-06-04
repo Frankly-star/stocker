@@ -9,9 +9,12 @@ document.addEventListener('DOMContentLoaded', () => {
   initLogs();
   initStrategy();
   initModes();
+  initEvolution();
   initSettings();
+
   Router.init();
   checkSystemStatus();
+  setInterval(checkSystemStatus, 10000);
 });
 
 // ============================================================
@@ -32,17 +35,76 @@ function showToast(message, type = 'info') {
 async function checkSystemStatus() {
   const dot = document.getElementById('status-dot');
   const text = document.getElementById('status-text');
+  const detail = document.getElementById('runtime-detail');
+  const pill = document.getElementById('runtime-status-pill');
   try {
-    const res = await API.getHealth();
-    if (res.status === 'ok') {
+    const [healthRes, statusRes, autoPilotRes] = await Promise.all([
+      API.getHealth().catch(() => null),
+      API.getStatus(),
+      API.getAutoPilot().catch(() => null),
+    ]);
+    if (healthRes && healthRes.status === 'ok') {
       dot.className = 'status-dot';
-      text.textContent = '系统运行中';
+    }
+    updateRuntimeStatus(statusRes, autoPilotRes);
+    updateStatusPanel(statusRes);
+    if (autoPilotRes) {
+      currentAutoPilot = Boolean(autoPilotRes.enabled);
+      syncAutoPilotUI(currentAutoPilot);
+    }
+    if (statusRes.execution_mode) {
+      syncModeUI(statusRes.execution_mode);
     }
   } catch {
-    dot.className = 'status-dot offline';
-    text.textContent = '连接失败';
+    if (dot) dot.className = 'status-dot offline';
+    if (text) text.textContent = '连接失败';
+    if (detail) detail.textContent = '无法读取运行状态';
+    if (pill) {
+      pill.className = 'runtime-pill offline';
+      pill.textContent = '服务未连接';
+    }
   }
 }
+
+function updateRuntimeStatus(status, autoPilot) {
+  const dot = document.getElementById('status-dot');
+  const text = document.getElementById('status-text');
+  const detail = document.getElementById('runtime-detail');
+  const pill = document.getElementById('runtime-status-pill');
+  const monitoring = status?.monitoring || {};
+  const running = Boolean(monitoring.enabled && monitoring.running);
+  const inCycle = Boolean(monitoring.in_cycle);
+  const interval = monitoring.interval_seconds || '-';
+  const cycles = monitoring.cycle_count || 0;
+  const summary = monitoring.last_summary || {};
+  const mode = (status?.execution_mode || 'observe').toUpperCase();
+  const broker = status?.broker || '-';
+  const autoPilotOn = Boolean(autoPilot?.enabled);
+
+  let label = '监控关闭';
+  let cls = 'warning';
+  if (running && inCycle) {
+    label = '监控扫描中';
+    cls = 'running';
+  } else if (running) {
+    label = '监控运行中';
+    cls = 'running';
+  } else if (monitoring.enabled) {
+    label = '监控待启动';
+    cls = 'warning';
+  }
+
+  if (dot) dot.className = `status-dot${cls === 'running' ? '' : ' warning'}`;
+  if (text) text.textContent = label;
+  if (detail) {
+    detail.textContent = `周期 ${interval}s · 已跑 ${cycles} 轮 · 新预警 ${summary.new_alerts ?? 0} · 持仓预警 ${summary.position_alerts ?? 0}`;
+  }
+  if (pill) {
+    pill.className = `runtime-pill ${cls}`;
+    pill.textContent = `${label} · ${mode} · ${broker}${autoPilotOn ? ' · AutoPilot' : ''}`;
+  }
+}
+
 
 // ============================================================
 // Chat Page
@@ -857,6 +919,13 @@ function updateStatusPanel(data) {
   // Scheduler
   setVal('scheduler', data.scheduler === 'running' ? '运行中' : data.scheduler || '-', '');
 
+  // Continuous monitoring
+  const monitoring = data.monitoring || {};
+  const monText = monitoring.enabled
+    ? `${monitoring.running ? (monitoring.in_cycle ? '扫描中' : '运行中') : '待启动'} · ${monitoring.cycle_count || 0} 轮`
+    : '已关闭';
+  setVal('monitoring', monText, monitoring.enabled && monitoring.running ? '' : 'warning');
+
   // Broker
   const brokerName = data.broker || 'none';
   const brokerLabel = brokerName === 'simulated' ? '模拟盘' : brokerName === 'futu' ? '富途' : brokerName;
@@ -1243,9 +1312,139 @@ async function loadLogs() {
 }
 
 // ============================================================
+// EvolutionSkill Page
+// ============================================================
+function initEvolution() {
+  Router.register('evolution', loadEvolution);
+  document.getElementById('btn-evolution-refresh')?.addEventListener('click', loadEvolution);
+  document.getElementById('btn-evolution-seed')?.addEventListener('click', async () => {
+    try {
+      const res = await API.seedEvolutionSkills(false);
+      showToast(`已创建 ${res.created?.length || 0} 个默认 skill`, 'success');
+      loadEvolution();
+    } catch (e) {
+      showToast(`初始化失败: ${e.message}`, 'error');
+    }
+  });
+  document.getElementById('btn-evolution-review')?.addEventListener('click', runEvolutionReview);
+}
+
+async function loadEvolution() {
+  const skillBody = document.getElementById('evolution-skills-tbody');
+  const patchBody = document.getElementById('evolution-patches-tbody');
+  const tracesEl = document.getElementById('evolution-traces-list');
+  try {
+    const [skillsRes, patchesRes, tracesRes] = await Promise.all([
+      API.listEvolutionSkills(),
+      API.listEvolutionPatches('', 50),
+      API.listEvolutionTraces(50),
+    ]);
+    const skills = skillsRes.skills || [];
+    const patches = patchesRes.patches || [];
+    const traces = tracesRes.traces || [];
+    document.getElementById('evo-skill-count').textContent = skills.length;
+    document.getElementById('evo-patch-count').textContent = patches.filter(p => ['draft', 'validated', 'approved'].includes(p.status)).length;
+    document.getElementById('evo-trace-count').textContent = traces.length;
+    document.getElementById('evo-status').textContent = 'READY';
+
+    skillBody.innerHTML = skills.length ? skills.map(s => `
+      <tr>
+        <td style="font-family:var(--mono);font-size:.72rem;">${escapeHtml(s.id || '-')}</td>
+        <td>${escapeHtml(s.team || '-')}/${escapeHtml(s.node || '-')}</td>
+        <td><span class="report-tag">${escapeHtml(s.status || '-')}</span></td>
+        <td>${escapeHtml(s.risk_level || '-')}</td>
+        <td>v${s.version || 1}</td>
+        <td>${escapeHtml(s.description || '')}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px;">暂无 EvolutionSkill，点击“初始化默认 Skill”。</td></tr>';
+
+    patchBody.innerHTML = patches.length ? patches.map(p => `
+      <tr>
+        <td style="font-family:var(--mono);font-size:.72rem;">${escapeHtml((p.patch_id || '').slice(0, 10))}</td>
+        <td style="font-family:var(--mono);font-size:.72rem;">${escapeHtml(p.target_skill_id || '-')}</td>
+        <td><span class="report-tag">${escapeHtml(p.status || '-')}</span></td>
+        <td>${escapeHtml(p.risk_level || '-')}</td>
+        <td>${escapeHtml(p.reason || '')}</td>
+        <td>
+          <button class="btn btn-sm" onclick="validateEvolutionPatch('${escapeHtml(p.patch_id)}')">校验</button>
+          <button class="btn btn-sm" onclick="approveEvolutionPatch('${escapeHtml(p.patch_id)}')">审批</button>
+          <button class="btn btn-sm btn-primary" onclick="applyEvolutionPatch('${escapeHtml(p.patch_id)}')">应用</button>
+        </td>
+      </tr>
+    `).join('') : '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px;">暂无 patch 草案。</td></tr>';
+
+    tracesEl.innerHTML = traces.length ? traces.slice(0, 20).map(t => `
+      <div style="padding:8px 0;border-bottom:1px solid var(--border);">
+        <div><b>${escapeHtml(t.team || '-')}/${escapeHtml(t.node || '-')}</b> ${escapeHtml(t.ticker || '')} ${t.skill_id ? `<span class="report-tag">${escapeHtml(t.skill_id)}</span>` : ''}</div>
+        <div class="text-muted">${escapeHtml(t.output_summary || t.input_summary || '').slice(0, 220)}</div>
+      </div>
+    `).join('') : '<div class="text-muted">暂无节点轨迹。运行分析或风险评估后会自动记录。</div>';
+  } catch (e) {
+    document.getElementById('evo-status').textContent = 'ERROR';
+    skillBody.innerHTML = `<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px;">加载失败: ${escapeHtml(e.message)}</td></tr>`;
+    patchBody.innerHTML = '<tr><td colspan="6" class="text-muted" style="text-align:center;padding:20px;">加载失败</td></tr>';
+    tracesEl.textContent = `加载失败: ${e.message}`;
+  }
+}
+
+async function runEvolutionReview() {
+  const box = document.getElementById('evolution-review-box');
+  box.textContent = '生成中...';
+  try {
+    const res = await API.runEvolutionWeeklyReview({ persist: true });
+    const review = res.review || {};
+    const stats = review.stats || {};
+    const recs = review.recommendations || [];
+    box.innerHTML = `
+      <div style="margin-bottom:8px;">Skills: ${stats.skills || 0}，Traces: ${stats.traces || 0}，Pending patches: ${stats.pending_patches || 0}</div>
+      ${recs.length ? recs.map(r => `<div style="padding:6px 0;border-top:1px solid var(--border);">${escapeHtml(r)}</div>`).join('') : '<div class="text-muted">暂无建议。</div>'}
+    `;
+    showToast('周复盘已生成', 'success');
+  } catch (e) {
+    box.textContent = `生成失败: ${e.message}`;
+  }
+}
+
+window.validateEvolutionPatch = async function(patchId) {
+  try {
+    const res = await API.validateEvolutionPatch(patchId);
+    showToast(res.success ? 'patch 校验通过' : 'patch 校验失败', res.success ? 'success' : 'error');
+    loadEvolution();
+  } catch (e) {
+    showToast(`校验失败: ${e.message}`, 'error');
+  }
+};
+
+window.approveEvolutionPatch = async function(patchId) {
+  const evidence = prompt('如为高风险 patch，请输入 paper:/backtest: 证据 ID；低风险可留空。') || '';
+  try {
+    const res = await API.approveEvolutionPatch(patchId, {
+      approved_by: 'web-user',
+      evidence_ids: evidence.trim() ? [evidence.trim()] : [],
+    });
+    showToast(res.success ? 'patch 已审批' : 'patch 审批失败', res.success ? 'success' : 'error');
+    loadEvolution();
+  } catch (e) {
+    showToast(`审批失败: ${e.message}`, 'error');
+  }
+};
+
+window.applyEvolutionPatch = async function(patchId) {
+  if (!confirm('确认应用该 patch？高风险 patch 需要已审批并绑定 paper/backtest 证据。')) return;
+  try {
+    const res = await API.applyEvolutionPatch(patchId);
+    showToast(res.success ? 'patch 已应用' : (res.error || 'patch 应用失败'), res.success ? 'success' : 'error');
+    loadEvolution();
+  } catch (e) {
+    showToast(`应用失败: ${e.message}`, 'error');
+  }
+};
+
+// ============================================================
 // Settings Page
 // ============================================================
 let _currentBrokerType = 'futu';
+
 
 function initSettings() {
   const saveBtn = document.getElementById('btn-save-settings');

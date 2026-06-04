@@ -42,6 +42,9 @@ def load_config(env_path: str | None = None) -> dict:
         "confidence_threshold": float(os.getenv("STOCKER_CONFIDENCE_THRESHOLD", "0.7")),
         "auto_trading_enabled": os.getenv("STOCKER_AUTO_TRADING_ENABLED", "false"),
         "auto_pilot_interval_minutes": int(os.getenv("STOCKER_AUTO_PILOT_INTERVAL", "60")),
+        "monitoring_enabled": os.getenv("STOCKER_MONITORING_ENABLED", "true"),
+        "monitoring_interval_seconds": int(os.getenv("STOCKER_MONITORING_INTERVAL_SECONDS", "300")),
+        "paper_initial_cash": float(os.getenv("STOCKER_PAPER_INITIAL_CASH", "100000")),
 
         # Broker (default: futu paper trading via OpenD)
         "broker_type": os.getenv("STOCKER_BROKER_TYPE", "futu"),

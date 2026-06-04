@@ -28,20 +28,24 @@ logger = logging.getLogger(__name__)
 # Analysis Cache
 # ---------------------------------------------------------------------------
 
-class AnalysisCache:
-    """Caches analysis results by ticker + timestamp."""
+DEFAULT_ANALYSIS_CACHE_DIR = Path("data/analysis_cache")
 
-    def __init__(self, cache_dir: str = "data/analysis_cache") -> None:
+
+class AnalysisCache:
+    """Caches analysis results under data/analysis_cache/{TICKER}_latest.json."""
+
+    def __init__(self, cache_dir: str | Path = DEFAULT_ANALYSIS_CACHE_DIR) -> None:
         self._dir = Path(cache_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
 
+    def _filepath(self, ticker: str) -> Path:
+        return self._dir / f"{ticker.upper()}_latest.json"
+
     def save(self, ticker: str, report: MarketIntelligenceReport) -> None:
-        filepath = self._dir / f"{ticker.upper()}_latest.json"
-        atomic_json_write(filepath, report.model_dump(mode="json"))
+        atomic_json_write(self._filepath(ticker), report.model_dump(mode="json"))
 
     def get(self, ticker: str) -> MarketIntelligenceReport | None:
-        filepath = self._dir / f"{ticker.upper()}_latest.json"
-        data = json_read(filepath)
+        data = json_read(self._filepath(ticker))
         if data:
             try:
                 return MarketIntelligenceReport(**data)
@@ -49,11 +53,62 @@ class AnalysisCache:
                 return None
         return None
 
+    def list_latest(self, limit: int = 50) -> list[dict]:
+        """List cached latest reports for the `/reports` API."""
+        reports = []
+        for filepath in self._dir.glob("*_latest.json"):
+            data = json_read(filepath)
+            if not isinstance(data, dict) or not data:
+                continue
+            ticker = data.get("ticker") or filepath.name.removesuffix("_latest.json")
+            item = self._to_report_summary(data, ticker=ticker, mtime=filepath.stat().st_mtime)
+            reports.append(item)
+
+        reports.sort(key=lambda item: item.get("_sort_ts", 0.0), reverse=True)
+        for item in reports:
+            item.pop("_sort_ts", None)
+        return reports[:limit]
+
+    @staticmethod
+    def _to_report_summary(data: dict, ticker: str, mtime: float) -> dict:
+        item = dict(data)
+        item["ticker"] = str(ticker).upper()
+
+        timestamp = item.get("timestamp")
+        if isinstance(timestamp, str) and timestamp:
+            item.setdefault("date", timestamp[:10])
+            try:
+                sort_ts = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                sort_ts = mtime
+        else:
+            item.setdefault("date", "")
+            sort_ts = mtime
+
+        item.setdefault("environment", item.get("market_environment", ""))
+        item.setdefault("summary", AnalysisCache._summarize_report(item))
+        item["_sort_ts"] = sort_ts
+        return item
+
+    @staticmethod
+    def _summarize_report(item: dict) -> str:
+        raw_reports = item.get("raw_reports")
+        if isinstance(raw_reports, dict):
+            for key in ("market", "news", "fundamentals", "social"):
+                text = raw_reports.get(key)
+                if isinstance(text, str) and text.strip():
+                    return " ".join(text.strip().split())[:600]
+        quality = item.get("data_quality", "unknown")
+        price = item.get("current_price", 0)
+        environment = item.get("market_environment", "")
+        return f"Data quality: {quality}; price: {price}; environment: {environment}"
+
     def get_text(self, ticker: str) -> str:
         report = self.get(ticker)
         if report:
             return report.to_situation_text()
         return f"No cached analysis for {ticker}"
+
 
 
 # ---------------------------------------------------------------------------
@@ -77,8 +132,9 @@ The system has two execution modes — you MUST respect the current mode:
 6. **get_cached_analysis(ticker)** — Get cached analysis.
 7. **manage_watchlist(action, ticker, name, market, tags)** — Manage the watchlist/stock pool: list/add/remove/count. Add stocks you want to monitor.
 8. **scan_watchlist_signals(min_strength)** — Scan all watchlist stocks for swing trading signals. Returns entry/exit signals with strength scores.
-9. **get_realtime_quote(ticker)** — Get real-time stock quote (price, change%, PE, volume) via WeStock API. Lightweight, no full pipeline needed.
-10. **discover_market_opportunities(market)** — Fetch real-time market data: hot stocks, hot sectors, fund flows, market news. Use this to discover candidates before deep analysis.
+9. **get_position_alerts()** — Get current position alerts from the continuous monitoring alert store.
+10. **get_realtime_quote(ticker)** — Get real-time stock quote (price, change%, PE, volume) via WeStock API. Lightweight, no full pipeline needed.
+11. **discover_market_opportunities(market)** — Fetch real-time market data: hot stocks, hot sectors, fund flows, market news. Use this to discover candidates before deep analysis.
 
 ## Decision Logic
 You decide what to do based on the conversation — no manual mode selection needed:
@@ -88,6 +144,7 @@ You decide what to do based on the conversation — no manual mode selection nee
 - User asks about status / portfolio → use appropriate tools
 - User asks about price / quote → use get_realtime_quote (fast) instead of run_intelligence (slow)
 - User asks to watch / monitor a stock → use manage_watchlist to add it
+- User asks which holdings need attention / alerts / risk now → use get_position_alerts
 - User asks to "scan" or "find opportunities" → use scan_watchlist_signals
 - User asks to "discover" or "research market/sectors" → use discover_market_opportunities first, then run_intelligence on candidates
 - For scheduled tasks (prefixed with "scheduled:") → run full pipeline
@@ -97,7 +154,7 @@ When executing a scheduled autonomous research cycle:
 1. **Market Discovery**: Call discover_market_opportunities to get real-time hot stocks, sector fund flows, and market news. This provides DATA-DRIVEN candidates, not guesswork.
 2. **Candidate Selection**: From the market data, identify 3-5 stocks with strong momentum, fund inflows, or sector tailwinds.
 3. **Full Pipeline Analysis**: For EACH candidate, run the complete analysis pipeline:
-   - run_intelligence(ticker) → Data Intelligence Team fetches K-line, technicals, news, fundamentals, fund flows via westock-data + yfinance + RSS
+   - run_intelligence(ticker) → Data Intelligence Team fetches K-line, technicals, fundamentals, fund flows via westock-data and news via finance-news RSS only
    - run_risk_assessment(ticker) → Risk Assessment Team runs bull/bear debate + risk debate → produces BUY/HOLD/SELL rating
 4. **Watchlist Management**: Stocks rated BUY or OVERWEIGHT → add to watchlist via manage_watchlist(action='add'). Stocks rated SELL → remove if already watching.
 5. **Signal Scan**: Run scan_watchlist_signals on the full watchlist to find entry/exit signals.
@@ -422,12 +479,12 @@ def create_supervisor_tools(
 
         try:
             from stocker.analysis.swing_signals import SwingSignalEngine
-            from stocker.utils.data_helpers import fetch_ohlcv_yfinance
+            from stocker.utils.data_helpers import fetch_ohlcv_westock
             engine = SwingSignalEngine()
             results = []
             for wi in items[:30]:  # limit batch
                 try:
-                    df = fetch_ohlcv_yfinance(wi.ticker)
+                    df = fetch_ohlcv_westock(wi.ticker)
                     if df is None or df.empty:
                         continue
                     signal = engine.analyze(wi.ticker, df)
@@ -448,28 +505,32 @@ def create_supervisor_tools(
             return f"Scan failed: {e}"
 
     @tool
+    def get_position_alerts() -> str:
+        """Get position alerts from the continuous monitoring alert store."""
+        try:
+            from stocker.alerts.position_alerts import generate_position_alerts
+            from stocker.alerts.store import create_alert_store
+            from stocker.config import load_config
+
+            cfg = load_config()
+            alerts = create_alert_store(cfg.get("broker_type", "futu"))
+            result = generate_position_alerts(portfolio_store, alerts) if portfolio_store else {
+                "error": "Portfolio store not initialized"
+            }
+            return json.dumps(result, ensure_ascii=False, default=str)
+        except Exception as e:
+            return f"Position alerts failed: {e}"
+
+    @tool
     def get_realtime_quote(ticker: str) -> str:
         """Get real-time stock quote (price, change%, PE, volume) via WeStock data API.
         Use this for quick price checks without running the full intelligence pipeline.
         ticker: stock symbol (e.g. AAPL, 0700.HK, 600519.SS)."""
         try:
+            from stocker.agents.intelligence.data_fetcher import _convert_to_westock_code
             from stocker.skills.westock_data import _run_westock
 
-            t = ticker.upper().strip()
-            # Convert to westock code
-            if t.endswith(".HK"):
-                code = f"hk{t.replace('.HK', '').zfill(5)}"
-            elif t.endswith(".SS"):
-                code = f"sh{t.replace('.SS', '')}"
-            elif t.endswith(".SZ"):
-                code = f"sz{t.replace('.SZ', '')}"
-            elif t.isdigit():
-                code = f"sh{t}" if t.startswith("6") else f"sz{t}"
-            elif t.isalpha():
-                code = f"us{t}"
-            else:
-                code = t
-
+            code = _convert_to_westock_code(ticker)
             raw = _run_westock(["quote", code], timeout=15)
             if raw and "error" not in raw.lower()[:100]:
                 return f"Real-time quote for {ticker} (code={code}):\n{raw}"
@@ -501,13 +562,17 @@ def create_supervisor_tools(
         if board and "error" not in board.lower()[:80]:
             sections.append(f"## 热门板块（行业资金流向+涨幅排名）\n{board[:3000]}")
 
-        # 3. Market news
-        mnews = _run_westock(["marketnews", market], timeout=15)
-        if mnews and "error" not in mnews.lower()[:80]:
-            sections.append(f"## 市场资讯\n{mnews[:2000]}")
+        # 3. Market news: finance-news RSS only, consistent with DataFetcher policy
+        try:
+            from stocker.agents.intelligence.data_fetcher import _fetch_finance_news_rss
+            _, global_news = _fetch_finance_news_rss("", ticker_limit=0, global_limit=8)
+            if global_news:
+                sections.append(f"## 市场资讯（finance-news RSS）\n{global_news[:2000]}")
+        except Exception as e:
+            logger.warning("finance-news RSS market news unavailable: %s", e)
 
         if not sections:
-            return "Failed to fetch market data from all sources."
+            return "Failed to fetch market data from the fixed westock-data / finance-news RSS route."
 
         return (
             f"Market opportunities scan ({market.upper()}):\n\n"
@@ -527,6 +592,7 @@ def create_supervisor_tools(
         get_cached_analysis,
         manage_watchlist,
         scan_watchlist_signals,
+        get_position_alerts,
         get_realtime_quote,
         discover_market_opportunities,
     ]

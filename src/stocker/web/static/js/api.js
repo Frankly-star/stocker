@@ -67,7 +67,20 @@ const API = (() => {
     // Skills
     listSkills:  ()                  => request('GET',  '/skills'),
 
+    // Evolution Skill Runtime
+    listEvolutionSkills:  (params = '') => request('GET', `/evolution/skills${params}`),
+    viewEvolutionSkill:   (id)          => request('GET', `/evolution/skills/${encodeURIComponent(id)}`),
+    seedEvolutionSkills:  (overwrite = false) => request('POST', '/evolution/skills/seed-defaults', { overwrite }),
+    listEvolutionTraces:  (limit = 50)  => request('GET', `/evolution/traces?limit=${limit}`),
+    listEvolutionPatches: (status = '', limit = 50) => request('GET', `/evolution/patches?status=${encodeURIComponent(status)}&limit=${limit}`),
+    validateEvolutionPatch: (id)        => request('POST', `/evolution/patches/${encodeURIComponent(id)}/validate`),
+    approveEvolutionPatch:  (id, body)  => request('POST', `/evolution/patches/${encodeURIComponent(id)}/approve`, body),
+    applyEvolutionPatch:    (id)        => request('POST', `/evolution/patches/${encodeURIComponent(id)}/apply`),
+    runEvolutionCurator:    (body = {}) => request('POST', '/evolution/curator/run', body),
+    runEvolutionWeeklyReview: (body = {}) => request('POST', '/evolution/review/weekly', body),
+
     // Strategy
+
     getStrategy:       ()            => request('GET',  '/strategy'),
     updateStrategy:    (data)        => request('PUT',  '/strategy', data),
     listPresets:       ()            => request('GET',  '/strategy/presets'),

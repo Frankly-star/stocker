@@ -32,12 +32,39 @@ def create_research_manager(llm: Any, memory: BM25Memory) -> Callable:
             + memory_ctx
         )
 
+        try:
+            from stocker.evolution.adapters.langgraph_prompt_resolver import resolve_prompt
+            resolved_prompt = resolve_prompt(
+                team="risk",
+                node="research_manager",
+                base_prompt=system_prompt,
+                state=state,
+            )
+        except Exception:
+            resolved_prompt = None
+        human_content = f"Debate:\n{debate_history}"
         messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Debate:\n{debate_history}"),
+            SystemMessage(content=resolved_prompt.prompt if resolved_prompt else system_prompt),
+            HumanMessage(content=human_content),
         ]
 
+        import time
+        t0 = time.time()
         response = llm.invoke(messages)
+        duration_ms = int((time.time() - t0) * 1000)
+        try:
+            from stocker.evolution.adapters.trace_store import record_node_trace
+            record_node_trace(
+                team="risk",
+                node="research_manager",
+                state=state,
+                input_text=human_content,
+                output_text=response.content,
+                resolved_prompt=resolved_prompt,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            pass
 
         new_debate = dict(debate_state)
         new_debate["judge_decision"] = response.content
@@ -126,12 +153,38 @@ def create_portfolio_manager(llm: Any, memory: BM25Memory) -> Callable:
             f"Risk Debate:\n{risk_history}"
         )
 
+        try:
+            from stocker.evolution.adapters.langgraph_prompt_resolver import resolve_prompt
+            resolved_prompt = resolve_prompt(
+                team="risk",
+                node="portfolio_manager",
+                base_prompt=system_prompt,
+                state=state,
+            )
+        except Exception:
+            resolved_prompt = None
         messages = [
-            SystemMessage(content=system_prompt),
+            SystemMessage(content=resolved_prompt.prompt if resolved_prompt else system_prompt),
             HumanMessage(content=human_content),
         ]
 
+        import time
+        t0 = time.time()
         response = llm.invoke(messages)
+        duration_ms = int((time.time() - t0) * 1000)
+        try:
+            from stocker.evolution.adapters.trace_store import record_node_trace
+            record_node_trace(
+                team="risk",
+                node="portfolio_manager",
+                state=state,
+                input_text=human_content,
+                output_text=response.content,
+                resolved_prompt=resolved_prompt,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            pass
 
         new_risk = dict(risk_state)
         new_risk["judge_decision"] = response.content

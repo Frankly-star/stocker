@@ -38,13 +38,40 @@ def _create_risk_debator(llm: Any, role: str, system_prompt: str) -> Callable:
         if history:
             human_msg += f"\n\nDebate so far:\n{history}"
 
+        node_name = role.lower()
+        try:
+            from stocker.evolution.adapters.langgraph_prompt_resolver import resolve_prompt
+            resolved_prompt = resolve_prompt(
+                team="risk",
+                node=node_name,
+                base_prompt=system_prompt,
+                state=state,
+            )
+        except Exception:
+            resolved_prompt = None
         messages = [
-            SystemMessage(content=system_prompt),
+            SystemMessage(content=resolved_prompt.prompt if resolved_prompt else system_prompt),
             HumanMessage(content=human_msg),
         ]
 
+        import time
+        t0 = time.time()
         response = llm.invoke(messages)
+        duration_ms = int((time.time() - t0) * 1000)
         content = response.content
+        try:
+            from stocker.evolution.adapters.trace_store import record_node_trace
+            record_node_trace(
+                team="risk",
+                node=node_name,
+                state=state,
+                input_text=human_msg,
+                output_text=content,
+                resolved_prompt=resolved_prompt,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            pass
 
         new_state = dict(risk_state)
         new_state[f"{role.lower()}_history"] = content
