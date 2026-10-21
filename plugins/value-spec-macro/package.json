@@ -1,0 +1,12 @@
+{
+  "name": "@frankly-star/stocker-value-spec-macro",
+  "version": "0.0.0",
+  "private": true,
+  "description": "价值投机宏观层插件骨架：讨论流动性、利率、信用与风险偏好。不产生交易指令。TODO wire Cordis plugin.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Frankly-star/stocker.git",
+    "directory": "plugins/value-spec-macro"
+  }
+}
