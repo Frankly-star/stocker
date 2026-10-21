@@ -1,158 +1,79 @@
 # Stocker
 
-基于 LangGraph 的多智能体自动化区间/波段交易系统，默认接入富途模拟盘。
+价值投机交易代理产品。交易侧以 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）插件的形式放在本仓库；运行时框架在子模块里，不在这里重写。
 
-## 系统架构
+本仓库目前只有插件骨架和说明。**还没有接入 dsh profile，也没有交易策略实现。** 启动 harness 不会加载这些插件，也不会下单。
 
-```
-浏览器 Web UI ←→ FastAPI 后端 ←→ Supervisor 主控智能体
-                                      ↓
-                    ┌─────────────────┼─────────────────┐
-                    ↓                 ↓                 ↓
-              数据分析团队        风险评估团队        交易执行团队
-              (4 并行智能体)     (多空辩论 + 风控)    (富途 Broker)
-                    ↓                                   ↓
-              行情/新闻/基本面                    OpenD ←→ 富途后端
-```
-
-**核心组件：**
-
-1. **Supervisor 主控智能体** — LLM 驱动的协调者，从对话中理解用户意图，自主决定调用哪些团队
-2. **数据分析团队** — 4 个并行智能体：行情数据、新闻情绪、基本面、社交媒体 → 生成 `MarketIntelligenceReport`
-3. **风险评估团队** — 多空辩论 + 三方风险辩论 → 生成 `RiskAssessmentResult`
-4. **交易执行团队** — 订单验证 → 风控检查 → FutuBroker 下单 → 持仓同步
-5. **富途集成层** — 自动管理 OpenD 生命周期（下载/启动/停止），封装行情订阅与交易接口
-6. **Web UI** — 原生 SPA 前端，包含对话、持仓、分析报告、交易记录、运行日志、策略配置、系统状态等页面
-
-## 快速开始
-
-```bash
-pip install -e .
-python runserver.py    # 启动服务（自动下载并启动 OpenD）
-# 或
-stocker serve          # 通过 CLI 启动
-```
-
-浏览器打开 `http://127.0.0.1:8899` 即可使用 Web UI。
-
-也可以通过命令行操作：
-
-```bash
-stocker analyze AAPL   # 分析一只股票
-stocker status         # 查看系统状态（含 Broker 连接信息）
-stocker portfolio list # 查看持仓
-stocker chat           # 与 Supervisor 交互对话
-```
-
-## 执行模式
-
-系统只有两种执行模式，其他所有决策由 Supervisor 自动完成：
-
-- `active` — Supervisor 拥有完整自主权：可以分析、评估，并通过富途 Broker 执行交易
-- `observe`（默认）— Supervisor 正常分析和推荐，但不会执行任何实际交易
-
-Supervisor 会根据对话上下文自动决定执行什么操作（分析、风险评估、查询状态、管理持仓等），无需手动选择流程。可在 Web UI 顶栏或"运行模式"页面随时切换。
-
-## 富途 Open API 集成
-
-Stocker 默认通过富途 Open API 接入行情与交易。系统在数据分析链路中读取富途实时行情，在交易执行链路中将指令发送到富途模拟盘（默认）或实盘。
-
-### 前提条件
-
-1. **富途账户**：需拥有富途牛牛交易账户，并在富途官网完成开户与合规确认。
-2. **OpenD 网关**：需手动从 [富途 Open API 官网](https://openapi.futunn.com/) 下载安装 OpenD。安装后系统会自动查找并启动它。
-3. **行情权限**：行情订阅额度、历史 K 线额度按用户等级动态分配，详见 [权限说明](https://openapi.futunn.com/futu-api-doc/intro/authority.html)。
-4. **Python SDK**：`futu-api` 已包含在主依赖中，`pip install -e .` 即可安装。
-
-### OpenD 管理
-
-OpenD 由 Stocker 自动管理（`integrations/futu/opend_manager.py`）：
-
-- **自动查找**：在常见安装路径、系统 PATH、项目 `data/opend/` 目录中查找 OpenD 可执行文件
-- **自动拉起**：找到后以无窗口后台进程方式启动（`-no_monitor=1 -console=0`）
-- **登录等待**：如果 OpenD 启动但未登录，终端会提示用户登录并等待（最长 5 分钟）
-- **自动停止**：Stocker 关闭时自动终止 OpenD 进程
-- **智能跳过**：如果 OpenD 已在运行（端口可达），直接连接，不会重复启动
-
-如需手动管理 OpenD，可设置环境变量指向已运行的实例，系统检测到端口可用后会跳过自动启动。
-
-### 环境配置
-
-在项目根目录 `.env` 文件中添加以下配置：
-
-```env
-# Broker 选择（futu / simulated）
-STOCKER_BROKER_TYPE=futu
-
-# 系统执行模式（observe / active）
-STOCKER_EXECUTION_MODE=observe
-
-# Futu OpenD 连接
-STOCKER_FUTU_HOST=127.0.0.1
-STOCKER_FUTU_PORT=11111
-
-# 交易环境（simulate / real）
-STOCKER_FUTU_TRD_ENV=simulate
-
-# 默认市场（HK / US / CN）
-STOCKER_FUTU_MARKET=HK
-
-# 交易密码（模拟盘可留空）
-STOCKER_FUTU_TRADE_PWD=
-
-# 行情功能开关
-STOCKER_FUTU_QUOTE_ENABLED=true
-
-# 启动时默认订阅的标的（逗号分隔，可留空）
-STOCKER_FUTU_SUBSCRIBE_CODES=HK.00700,US.AAPL
-```
-
-### 启动方式
-
-只需一步：运行 `stocker serve` 或 `python runserver.py`。
-
-系统会自动完成以下流程：
-
-1. **检测 OpenD** — 检查 `127.0.0.1:11111` 是否已有 OpenD 运行
-2. **查找 OpenD** — 在常见安装路径和 PATH 中搜索 OpenD 可执行文件
-3. **自动启动** — 以后台进程方式启动 OpenD（无窗口、无守护进程）
-4. **等待登录** — 如果 OpenD 未登录，终端提示用户登录并轮询等待（最长 5 分钟）
-5. **连接与初始化** — 行情/交易连接 → 账户发现 → 交易解锁 → 默认行情订阅
-
-如果已经手动启动了 OpenD（或使用富途牛牛客户端内置的 OpenD），系统会直接连接，不会重复启动。
-
-如果本地未安装 OpenD，系统会在终端打印安装指引并降级到内置模拟盘。
-
-### 环境切换安全设计
-
-Stocker 采用双层安全保护，防止误操作导致真实交易：
-
-| 层级 | 配置项 | 值 | 作用 |
-| --- | --- | --- | --- |
-| 系统层 | `STOCKER_EXECUTION_MODE` | `observe` / `active` | 控制 Supervisor 是否允许调用交易执行 |
-| 富途层 | `STOCKER_FUTU_TRD_ENV` | `simulate` / `real` | 控制富途交易落到模拟盘还是实盘 |
-
-推荐的安全配置组合：
-
-- **开发/测试**：`execution_mode=active` + `trd_env=simulate`（允许执行，但只到模拟盘）
-- **只读监控**：`execution_mode=observe` + `trd_env=simulate`（只分析不交易）
-- **实盘交易**：`execution_mode=active` + `trd_env=real`（需额外确认，日志会打印醒目警告）
-
-即使在 `observe` 模式下配置了 `trd_env=real`，`FutuBroker.place_order()` 也会在代码层面拒绝所有下单请求。
-
-### 架构概览
+## 布局
 
 ```
-Stocker / Python SDK
-    ↓
-OpenD（本地网关, 127.0.0.1:11111）
-    ↓
-富途后端服务
+stocker/
+  vendor/deepseek-harness/   # git submodule → Frankly-star/deepseek-harness
+  plugins/                   # 本产品的插件骨架
+  philosophy/                # 价值投机原则草稿
+  profiles/                  # 剖面说明：启用哪些插件，默认 observe
 ```
 
-核心模块路径：
+| 路径 | 角色 |
+| --- | --- |
+| `vendor/deepseek-harness` | 用户 fork：<https://github.com/Frankly-star/deepseek-harness>（上游是 `deepseek-ai/deepseek-harness`） |
+| `plugins/value-spec-macro` | 宏观层 |
+| `plugins/value-spec-industry` | 行业周期层 |
+| `plugins/value-spec-micro` | 微观层（技术 + 情绪） |
+| `plugins/trade-thesis` | 自然语言交易论点 |
+| `plugins/trade-gate` | 交易门禁；默认 observe |
+| `plugins/broker-futu` | 富途经纪商适配占位 |
+| `plugins/philosophy-reflect` | 对照原则做反思的占位 |
+| `philosophy/` | 原则草稿，供仓库所有者改写 |
+| `profiles/` | 剖面说明。默认模式是 observe，不发送实盘委托 |
 
-- `src/stocker/integrations/futu/` — SDK 封装（quote_client、trade_client、handlers、mappers、config、opend_manager）
-- `src/stocker/engine/runtime.py` — FutuRuntime 生命周期管理
-- `src/stocker/broker/futu.py` — FutuBroker（适配 BaseBroker 抽象）
-- `src/stocker/broker/factory.py` — Broker 工厂（根据配置选择 futu / simulated）
+每个插件目录里有一份 README 和一个 `package.json` 占位（包名、描述、`TODO wire Cordis plugin`）。它们还不是可安装的 Cordis 插件：没有 `apply`，也没有 `dsh.bundle`。
+
+## 初始化子模块
+
+已克隆本仓库时：
+
+```sh
+git submodule update --init --recursive
+```
+
+全新克隆：
+
+```sh
+git clone --recurse-submodules https://github.com/Frankly-star/stocker.git
+cd stocker
+git submodule update --init --recursive
+```
+
+子模块 URL 记录在 `.gitmodules`，指向 `https://github.com/Frankly-star/deepseek-harness`，路径是 `vendor/deepseek-harness`。父仓库锁定的是该 fork 在添加子模块时的一次提交，而不是浮动的分支尖。
+
+## 以后如何用 dsh 运行
+
+接通方式以子模块文档为准，本仓库还没有做这一步。上游从源码运行 Web UI 的命令是（在 **harness 仓库**里，不是在本仓库根目录）：
+
+```sh
+cd vendor/deepseek-harness
+pnpm install
+pnpm run build
+pnpm dsh web
+```
+
+说明见子模块的 [README.md](vendor/deepseek-harness/README.md) 和 [README.zh.md](vendor/deepseek-harness/README.zh.md)。`pnpm dsh web` 使用已构建产物启动 Web UI，默认地址和 `--no-open` 等行为以该 README 为准。`pnpm run build` 负责准备仓库产物，`pnpm dsh web` 不会再构建一遍。
+
+也可以不经过本子模块，直接运行已发布的 CLI：
+
+```sh
+npx @deepseek-ai/dsh web
+```
+
+在把 `plugins/` 装进某个 dsh profile 之前，上面两种启动方式跑的都是 harness 本身，不是这个交易产品。dsh 里一个 profile 位于 `$DSH_HOME/profiles/<name>`，由可安装 bundle 和该剖面自己的 `cordis.patch.yml` 组成。本仓库的 `profiles/` 只是说明，不是那个目录。
+
+## 默认模式
+
+见 [profiles/README.md](profiles/README.md)。默认是 **observe**：可以讨论和起草论点，不发送实盘委托，直到用户明确批准离开观察模式。
+
+原则提纲见 [philosophy/README.md](philosophy/README.md)，标明为草稿。
+
+## 密钥
+
+不要提交 `.env`、API key 或交易密码。`.gitignore` 已忽略 `.env`。

@@ -1,0 +1,12 @@
+{
+  "name": "@frankly-star/stocker-trade-gate",
+  "version": "0.0.0",
+  "private": true,
+  "description": "交易门禁插件骨架。默认 observe：不发送实盘委托，直到用户明确批准。TODO wire Cordis plugin.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Frankly-star/stocker.git",
+    "directory": "plugins/trade-gate"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@frankly-star/stocker-trade-thesis",
+  "version": "0.0.0",
+  "private": true,
+  "description": "交易论点插件骨架：每笔拟议交易都要有一段可讨论的自然语言论点。不生成论点，也不下单。TODO wire Cordis plugin.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Frankly-star/stocker.git",
+    "directory": "plugins/trade-thesis"
+  }
+}

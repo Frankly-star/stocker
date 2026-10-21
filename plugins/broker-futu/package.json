@@ -1,0 +1,12 @@
+{
+  "name": "@frankly-star/stocker-broker-futu",
+  "version": "0.0.0",
+  "private": true,
+  "description": "富途经纪商适配插件骨架。未接线：不连接 OpenD，不读取账户，不下单。TODO wire Cordis plugin.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Frankly-star/stocker.git",
+    "directory": "plugins/broker-futu"
+  }
+}

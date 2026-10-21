@@ -1,0 +1,12 @@
+{
+  "name": "@frankly-star/stocker-philosophy-reflect",
+  "version": "0.0.0",
+  "private": true,
+  "description": "原则反思插件骨架：对照 philosophy/ 里的价值投机草稿做事后讨论。不改原则，也不下单。TODO wire Cordis plugin.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Frankly-star/stocker.git",
+    "directory": "plugins/philosophy-reflect"
+  }
+}
